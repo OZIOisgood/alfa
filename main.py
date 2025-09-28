@@ -291,11 +291,22 @@ def create_gradio_app():
                     visible=False
                 )
         
-        # Audio playback section (initially hidden)
+        # Audio section that will be populated dynamically
         audio_section = gr.Column(visible=False)
         with audio_section:
             gr.Markdown("### 🎵 Generated Audio Tracks")
-            audio_gallery = gr.HTML(value="", label="Audio Tracks")
+            audio_description = gr.HTML(value="", label="Audio Track Information")
+            
+            # Pre-create multiple audio components (we'll show/hide as needed)
+            audio_players = []
+            for i in range(10):  # Support up to 10 audio tracks
+                audio_players.append(
+                    gr.Audio(
+                        label=f"Audio Track {i+1}",
+                        interactive=False,
+                        visible=False
+                    )
+                )
         
         # Example problems
         gr.Markdown("### 📚 Try these example problems:")
@@ -312,35 +323,47 @@ def create_gradio_app():
             cache_examples=False
         )
         
-        def handle_audio_generation(problem_text, scenario_type):
-            """Handle scenario generation with audio."""
+        def handle_audio_generation_ui(problem_text, scenario_type):
+            """Handle scenario generation with audio for UI."""
             scenario_text, audio_results, status = generate_scenario_with_audio(problem_text, scenario_type)
             
-            # Create HTML for audio playback
+            # Create description HTML
             audio_html = ""
             if audio_results:
-                audio_html = "<div style='display: flex; flex-direction: column; gap: 15px;'>"
+                audio_html = "<div style='margin-bottom: 20px;'>"
                 for i, audio_data in enumerate(audio_results):
                     audio_html += f"""
-                    <div style='border: 1px solid #ddd; padding: 15px; border-radius: 8px; background: #f9f9f9;'>
+                    <div style='border: 1px solid #ddd; padding: 15px; margin-bottom: 10px; border-radius: 8px; background: #f9f9f9;'>
                         <h4 style='margin-top: 0; color: #333;'>{audio_data['section']} - {audio_data['frame_name']}</h4>
                         <p style='margin: 5px 0; color: #666;'><strong>Timestamp:</strong> {audio_data['timestamp']}</p>
-                        <p style='margin: 10px 0; font-style: italic;'>"{audio_data['text']}"</p>
-                        <audio controls style='width: 100%;'>
-                            <source src="file/{audio_data['audio_path']}" type="audio/mpeg">
-                            Your browser does not support the audio element.
-                        </audio>
+                        <p style='margin: 10px 0; font-style: italic; color: #444;'>"{audio_data['text']}"</p>
+                        <p style='margin: 5px 0; font-size: 12px; color: #888;'>🎵 Audio Track {i+1}</p>
                     </div>
                     """
                 audio_html += "</div>"
             
-            return (
+            # Prepare outputs: scenario, status, description, section visibility, status visibility, then audio players
+            outputs = [
                 scenario_text,
                 status,
                 audio_html,
-                gr.Column(visible=bool(audio_results)),  # Show audio section if we have results
-                gr.Textbox(visible=bool(status))  # Show status if we have it
-            )
+                gr.Column(visible=bool(audio_results)),  # audio_section
+                gr.Textbox(visible=bool(status))  # audio_status
+            ]
+            
+            # Add audio player updates
+            for i in range(10):
+                if i < len(audio_results):
+                    audio_data = audio_results[i]
+                    outputs.append(gr.Audio(
+                        value=audio_data['audio_path'],
+                        label=f"{audio_data['section']} - {audio_data['frame_name']} ({audio_data['timestamp']})",
+                        visible=True
+                    ))
+                else:
+                    outputs.append(gr.Audio(visible=False))
+            
+            return outputs
         
         # Event handlers
         generate_btn.click(
@@ -351,9 +374,9 @@ def create_gradio_app():
         )
         
         generate_audio_btn.click(
-            fn=handle_audio_generation,
+            fn=handle_audio_generation_ui,
             inputs=[problem_input, scenario_type],
-            outputs=[scenario_output, audio_status, audio_gallery, audio_section, audio_status],
+            outputs=[scenario_output, audio_status, audio_description, audio_section, audio_status] + audio_players,
             show_progress=True
         )
         
@@ -378,7 +401,7 @@ def main():
     # Launch the app
     app.launch(
         server_name="127.0.0.1",
-        server_port=7864,
+        server_port=7865,
         show_api=True,
         share=False
     )
