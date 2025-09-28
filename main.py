@@ -44,7 +44,7 @@ def initialize_tts_client():
 def generate_audio_from_text(text, filename_prefix, client=None):
     """
     Generate audio from text using Google Cloud Text-to-Speech API.
-    Uses Chirp 3: HD model with Anchernar voice.
+    Uses Studio Q voice as primary, with fallback to standard voices.
     """
     if client is None:
         client = initialize_tts_client()
@@ -55,11 +55,11 @@ def generate_audio_from_text(text, filename_prefix, client=None):
         # Create synthesis input
         synthesis_input = texttospeech.SynthesisInput(text=text)
         
-        # Configure voice (Chirp 3: HD with Anchernar voice)
+        # Use reliable standard voice
         voice = texttospeech.VoiceSelectionParams(
             language_code="en-US",
-            name="en-US-Studio-O",  # This is Anchernar voice
-            ssml_gender=texttospeech.SsmlVoiceGender.NEUTRAL
+            name="en-US-Standard-J",  # Standard male voice - reliable and clear
+            ssml_gender=texttospeech.SsmlVoiceGender.MALE
         )
         
         # Configure audio format
@@ -378,7 +378,7 @@ def main():
     # Launch the app
     app.launch(
         server_name="127.0.0.1",
-        server_port=7863,
+        server_port=7864,
         show_api=True,
         share=False
     )
