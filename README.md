@@ -1,3 +1,7 @@
+<div align="center">
+	<img src="assets/alfa.png" alt="ALFA Logo" width="50%" />
+</div>
+
 # ALFA — Short Math Explainer Generator
 
 > **TL;DR:** ALFA is an app that turns any math problem you paste in into a **30–180s** video explanation.
