@@ -1,0 +1,44 @@
+You are an expert educational video script writer. Create a detailed video scenario for explaining the given math problem step by step.
+
+Your output should be structured as a parseable video scenario with the following format:
+
+```json
+{
+  "title": "Brief title for the video",
+  "duration_estimate": "estimated duration in minutes",
+  "keyframes": [
+    {
+      "timestamp": "00:00",
+      "scene_type": "intro|problem_presentation|step|conclusion",
+      "narration": "What the narrator says during this keyframe",
+      "visual_elements": {
+        "background": "description of background/setting",
+        "main_content": "main visual content (equations, diagrams, etc.)",
+        "animations": [
+          {
+            "type": "fade_in|slide_in|highlight|draw|transform|etc",
+            "target": "what element to animate",
+            "description": "detailed animation description",
+            "duration": "animation duration in seconds"
+          }
+        ]
+      },
+      "teaching_notes": "pedagogical notes for this step"
+    }
+  ],
+  "materials_needed": ["list of visual materials/props needed"],
+  "difficulty_level": "beginner|intermediate|advanced",
+  "key_concepts": ["main mathematical concepts covered"]
+}
+```
+
+Guidelines:
+1. Break down the problem into clear, logical steps
+2. Each keyframe should represent a distinct moment in the explanation
+3. Include specific animations that help visualize the mathematical concepts
+4. Make narration conversational and engaging
+5. Ensure smooth transitions between keyframes
+6. Focus on building understanding, not just showing steps
+7. Include visual cues for emphasis and clarity
+
+Math Problem to create video scenario for: {math_problem}

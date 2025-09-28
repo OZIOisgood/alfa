@@ -1,7 +1,7 @@
 [project]
 name = "alfa"
 version = "0.1.0"
-description = "Math Problem Explanation App with Gradio and LLM"
+description = "Math Video Scenario Generator with Gradio and LLM - Creates parseable video scenarios with keyframes and animations"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
