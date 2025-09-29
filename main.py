@@ -159,12 +159,12 @@ def parse_scenario_json(scenario_text):
     except Exception as e:
         return None, [], f"Error extracting voice texts: {str(e)}"
 
-def generate_scenario_with_audio(problem_text, scenario_type="video_scenario"):
+def generate_scenario_with_audio(problem_text):
     """
     Generate a video scenario and create audio tracks for all voice-overs.
     """
     # First generate the scenario
-    scenario_text = generate_video_scenario(problem_text, scenario_type)
+    scenario_text = generate_video_scenario(problem_text)
     
     if scenario_text.startswith("Error"):
         return scenario_text, [], "Failed to generate scenario"
@@ -240,7 +240,7 @@ def generate_scenario_with_audio(problem_text, scenario_type="video_scenario"):
 
     return updated_scenario_json, audio_results, final_status
 
-def generate_video_scenario(problem_text, scenario_type="video_scenario"):
+def generate_video_scenario(problem_text):
     """
     Uses OpenRouter API to generate a video scenario for a math problem.
     """
@@ -250,7 +250,7 @@ def generate_video_scenario(problem_text, scenario_type="video_scenario"):
         return "Error: OPENROUTER_API_KEY not found in environment variables."
     
     # Load the appropriate prompt template
-    prompt_template = load_prompt_template(scenario_type)
+    prompt_template = load_prompt_template("video_scenario")
     if prompt_template.startswith("Error:"):
         return prompt_template
     
@@ -317,18 +317,9 @@ def create_gradio_app():
                     lines=3,
                     max_lines=5
                 )
-                
-                scenario_type = gr.Dropdown(
-                    choices=["video_scenario", "simple_explanation"],
-                    value="video_scenario",
-                    label="Scenario Type",
-                    info="Choose the type of output you want"
-                )
-                
-                with gr.Row():
-                    generate_btn = gr.Button("Generate Scenario Only", variant="secondary", size="lg")
-                    generate_audio_btn = gr.Button("Generate Scenario + Audio", variant="primary", size="lg")
-                
+
+                generate_audio_btn = gr.Button("Generate", variant="primary", size="lg")
+
             with gr.Column(scale=3):
                 scenario_output = gr.Textbox(
                     label="Video Scenario with Keyframes",
@@ -337,7 +328,7 @@ def create_gradio_app():
                     interactive=False,
                     show_copy_button=True
                 )
-                
+
                 audio_status = gr.Textbox(
                     label="Audio Generation Status",
                     lines=3,
@@ -378,9 +369,9 @@ def create_gradio_app():
             cache_examples=False
         )
         
-        def handle_audio_generation_ui(problem_text, scenario_type):
+        def handle_audio_generation_ui(problem_text):
             """Handle scenario generation with audio for UI."""
-            scenario_text, audio_results, status = generate_scenario_with_audio(problem_text, scenario_type)
+            scenario_text, audio_results, status = generate_scenario_with_audio(problem_text)
             
             # Create description HTML
             audio_html = ""
@@ -425,25 +416,10 @@ def create_gradio_app():
             return outputs
         
         # Event handlers
-        generate_btn.click(
-            fn=generate_video_scenario,
-            inputs=[problem_input, scenario_type],
-            outputs=[scenario_output],
-            show_progress=True
-        )
-        
         generate_audio_btn.click(
             fn=handle_audio_generation_ui,
-            inputs=[problem_input, scenario_type],
+            inputs=[problem_input],
             outputs=[scenario_output, audio_status, audio_description, audio_section] + audio_players,
-            show_progress=True
-        )
-        
-        # Allow Enter key to submit (scenario only)
-        problem_input.submit(
-            fn=generate_video_scenario,
-            inputs=[problem_input, scenario_type],
-            outputs=[scenario_output],
             show_progress=True
         )
     
