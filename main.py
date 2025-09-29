@@ -1,15 +1,19 @@
 import os
 import json
+import wave
 import requests
 import gradio as gr
 from dotenv import load_dotenv
 from pathlib import Path
 from google.cloud import texttospeech
 from google.oauth2 import service_account
-from io import BytesIO
-from mutagen.mp3 import MP3
+import numpy as np
 import hashlib
 import re
+
+PCM_SAMPLE_WIDTH = 2  # bytes (16-bit)
+PCM_CHANNELS = 1
+PCM_SAMPLE_RATE = 24000
 
 # Load environment variables
 load_dotenv()
@@ -40,6 +44,85 @@ def format_seconds_to_timestamp(seconds):
     total_seconds = int(round(seconds))
     minutes, secs = divmod(total_seconds, 60)
     return f"{minutes:02d}:{secs:02d}"
+
+
+def pcm_bytes_to_numpy(audio_bytes, sample_width=PCM_SAMPLE_WIDTH):
+    """Convert PCM bytes into a numpy array."""
+    if audio_bytes is None:
+        return None
+
+    if sample_width == 2:
+        dtype = np.int16
+    elif sample_width == 1:
+        dtype = np.int8
+    elif sample_width == 4:
+        dtype = np.int32
+    else:
+        raise ValueError("Unsupported sample width")
+
+    return np.frombuffer(audio_bytes, dtype=dtype)
+
+
+def generate_silence(duration_seconds, sample_rate=PCM_SAMPLE_RATE, sample_width=PCM_SAMPLE_WIDTH):
+    """Generate silence of the specified duration as a numpy array."""
+    if duration_seconds <= 0:
+        return None
+
+    num_samples = int(round(duration_seconds * sample_rate))
+    if num_samples <= 0:
+        return None
+
+    if sample_width == 2:
+        return np.zeros(num_samples, dtype=np.int16)
+    elif sample_width == 1:
+        return np.zeros(num_samples, dtype=np.int8)
+    elif sample_width == 4:
+        return np.zeros(num_samples, dtype=np.int32)
+
+    raise ValueError("Unsupported sample width for silence generation")
+
+
+def combine_audio_arrays(audio_results, gap_keyframe_seconds, gap_section_seconds, sample_rate=PCM_SAMPLE_RATE):
+    """Combine individual PCM arrays with configurable gaps."""
+    if not audio_results:
+        return None, "No audio results to combine"
+
+    segments = []
+    previous_section = None
+
+    for result in audio_results:
+        if previous_section is not None:
+            gap_seconds = gap_section_seconds if result['section'] != previous_section else gap_keyframe_seconds
+            if gap_seconds > 0:
+                silence = generate_silence(gap_seconds, sample_rate)
+                if silence is not None:
+                    segments.append(silence)
+
+        samples = pcm_bytes_to_numpy(result.get('audio_bytes'))
+        if samples is None:
+            return None, "Missing audio bytes for one or more tracks"
+
+        segments.append(samples)
+        previous_section = result['section']
+
+    if not segments:
+        return None, "No audio segments to combine"
+
+    combined = np.concatenate(segments)
+    return combined, None
+
+
+def numpy_audio_to_gradio_value(samples, sample_rate=PCM_SAMPLE_RATE):
+    """Convert a 1-D numpy array into a Gradio-compatible audio tuple."""
+    if samples is None:
+        return None
+
+    if samples.ndim > 1:
+        data = samples
+    else:
+        data = np.ascontiguousarray(samples)
+
+    return sample_rate, data
 
 def initialize_tts_client():
     """
@@ -76,12 +159,13 @@ def generate_audio_from_text(text, filename_prefix, client=None):
             ssml_gender=texttospeech.SsmlVoiceGender.MALE
         )
         
-        # Configure audio format
+        # Configure audio format (16-bit PCM for easy processing)
         audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.MP3,
+            audio_encoding=texttospeech.AudioEncoding.LINEAR16,
             speaking_rate=1.0,
             pitch=0.0,
-            volume_gain_db=0.0
+            volume_gain_db=0.0,
+            sample_rate_hertz=PCM_SAMPLE_RATE
         )
         
         # Generate speech
@@ -93,12 +177,9 @@ def generate_audio_from_text(text, filename_prefix, client=None):
         
         audio_bytes = response.audio_content
 
-        # Determine duration directly from in-memory bytes before writing to disk
-        duration_seconds = None
-        try:
-            duration_seconds = MP3(BytesIO(audio_bytes)).info.length
-        except Exception as duration_error:
-            print(f"Warning: Unable to determine audio duration: {duration_error}")
+        # Determine duration from PCM bytes
+        bytes_per_second = PCM_SAMPLE_RATE * PCM_SAMPLE_WIDTH
+        duration_seconds = len(audio_bytes) / bytes_per_second if audio_bytes else 0
 
         # Save audio file
         audio_dir = Path(__file__).parent / "audio_output"
@@ -106,16 +187,19 @@ def generate_audio_from_text(text, filename_prefix, client=None):
         
         # Create filename with hash to avoid conflicts
         text_hash = hashlib.md5(text.encode()).hexdigest()[:8]
-        filename = f"{filename_prefix}_{text_hash}.mp3"
+        filename = f"{filename_prefix}_{text_hash}.wav"
         audio_path = audio_dir / filename
         
-        with open(audio_path, "wb") as out:
-            out.write(audio_bytes)
+        with wave.open(str(audio_path), "wb") as wav_file:
+            wav_file.setnchannels(PCM_CHANNELS)
+            wav_file.setsampwidth(PCM_SAMPLE_WIDTH)
+            wav_file.setframerate(PCM_SAMPLE_RATE)
+            wav_file.writeframes(audio_bytes)
         
-        return str(audio_path), f"Audio generated successfully: {filename}", duration_seconds
+        return str(audio_path), f"Audio generated successfully: {filename}", duration_seconds, audio_bytes
         
     except Exception as e:
-        return None, f"Error generating audio: {str(e)}", None
+        return None, f"Error generating audio: {str(e)}", None, None
 
 def parse_scenario_json(scenario_text):
     """
@@ -159,7 +243,7 @@ def parse_scenario_json(scenario_text):
     except Exception as e:
         return None, [], f"Error extracting voice texts: {str(e)}"
 
-def generate_scenario_with_audio(problem_text):
+def generate_scenario_with_audio(problem_text, gap_keyframe_seconds=0.5, gap_section_seconds=1.0):
     """
     Generate a video scenario and create audio tracks for all voice-overs.
     """
@@ -188,7 +272,7 @@ def generate_scenario_with_audio(problem_text):
     status_messages = []
     
     for voice_data in voice_texts:
-        audio_path, message, duration_seconds = generate_audio_from_text(
+        audio_path, message, duration_seconds, audio_bytes = generate_audio_from_text(
             voice_data['text'], 
             voice_data['filename_prefix'], 
             tts_client
@@ -211,13 +295,30 @@ def generate_scenario_with_audio(problem_text):
                 'text': voice_data['text'],
                 'audio_path': audio_path,
                 'duration_seconds': duration_seconds,
-                'duration_timestamp': duration_timestamp
+                'duration_timestamp': duration_timestamp,
+                'audio_bytes': audio_bytes
             })
             status_appendix = f" (duration {duration_timestamp})" if duration_timestamp else ""
             status_messages.append(f"✅ {voice_data['frame_name']}: {message}{status_appendix}")
         else:
             status_messages.append(f"❌ {voice_data['frame_name']}: {message}")
     
+    combined_audio_value = None
+    if audio_results:
+        combined_array, combine_error = combine_audio_arrays(
+            audio_results,
+            gap_keyframe_seconds=gap_keyframe_seconds,
+            gap_section_seconds=gap_section_seconds,
+            sample_rate=PCM_SAMPLE_RATE
+        )
+
+        if combine_error:
+            status_messages.append(f"⚠️ Unable to combine audio tracks: {combine_error}")
+        else:
+            combined_audio_value = numpy_audio_to_gradio_value(combined_array, sample_rate=PCM_SAMPLE_RATE)
+            if combined_audio_value is not None:
+                status_messages.append("🎧 Combined audio track ready for playback.")
+
     # Persist updated scenario JSON with voice-over durations
     updated_scenario_json = scenario_text
     scenario_file_message = ""
@@ -238,7 +339,7 @@ def generate_scenario_with_audio(problem_text):
 
     final_status = f"Generated {len(audio_results)} audio tracks out of {len(voice_texts)} voice-overs:\n" + "\n".join(status_messages)
 
-    return updated_scenario_json, audio_results, final_status
+    return updated_scenario_json, audio_results, final_status, combined_audio_value
 
 def generate_video_scenario(problem_text):
     """
@@ -318,7 +419,23 @@ def create_gradio_app():
                     max_lines=5
                 )
 
-                generate_audio_btn = gr.Button("Generate", variant="primary", size="lg")
+                gap_keyframe_slider = gr.Slider(
+                    label="Gap between keyframes (seconds)",
+                    minimum=0.0,
+                    maximum=3.0,
+                    value=0.5,
+                    step=0.1
+                )
+
+                gap_section_slider = gr.Slider(
+                    label="Gap between sections (seconds)",
+                    minimum=0.0,
+                    maximum=5.0,
+                    value=1.0,
+                    step=0.1
+                )
+
+                generate_audio_btn = gr.Button("generate", variant="primary", size="lg")
 
             with gr.Column(scale=3):
                 scenario_output = gr.Textbox(
@@ -336,22 +453,11 @@ def create_gradio_app():
                     interactive=False,
                     visible=False
                 )
-        
-        # Audio section that will be populated dynamically
-        audio_section = gr.Column(visible=False)
-        with audio_section:
-            gr.Markdown("### 🎵 Generated Audio Tracks")
-            audio_description = gr.HTML(value="", label="Audio Track Information")
-            
-            # Pre-create multiple audio components (we'll show/hide as needed)
-            audio_players = []
-            for i in range(10):  # Support up to 10 audio tracks
-                audio_players.append(
-                    gr.Audio(
-                        label=f"Audio Track {i+1}",
-                        interactive=False,
-                        visible=False
-                    )
+
+                combined_audio_player = gr.Audio(
+                    label="Combined Audio Preview",
+                    interactive=False,
+                    visible=False
                 )
         
         # Example problems
@@ -369,57 +475,25 @@ def create_gradio_app():
             cache_examples=False
         )
         
-        def handle_audio_generation_ui(problem_text):
+        def handle_audio_generation_ui(problem_text, gap_keyframe, gap_section):
             """Handle scenario generation with audio for UI."""
-            scenario_text, audio_results, status = generate_scenario_with_audio(problem_text)
-            
-            # Create description HTML
-            audio_html = ""
-            if audio_results:
-                audio_html = "<div style='margin-bottom: 20px;'>"
-                for i, audio_data in enumerate(audio_results):
-                    audio_html += f"""
-                    <div style='border: 1px solid #ddd; padding: 15px; margin-bottom: 10px; border-radius: 8px; background: #f9f9f9;'>
-                        <h4 style='margin-top: 0; color: #333;'>{audio_data['section']} - {audio_data['frame_name']}</h4>
-                        <p style='margin: 5px 0; color: #666;'><strong>Timestamp:</strong> {audio_data['timestamp']}</p>
-                        <p style='margin: 5px 0; color: #666;'><strong>Duration:</strong> {audio_data.get('duration_timestamp', 'Unknown')}</p>
-                        <p style='margin: 10px 0; font-style: italic; color: #444;'>"{audio_data['text']}"</p>
-                        <p style='margin: 5px 0; font-size: 12px; color: #888;'>🎵 Audio Track {i+1}</p>
-                    </div>
-                    """
-                audio_html += "</div>"
-            
-            # Prepare outputs: scenario, status, description, section visibility, then audio players
-            outputs = [
-                scenario_text,
-                gr.update(value=status, visible=bool(status)),  # audio_status
-                audio_html,
-                gr.update(visible=bool(audio_results))  # audio_section
-            ]
-            
-            # Add audio player updates
-            for i in range(10):
-                if i < len(audio_results):
-                    audio_data = audio_results[i]
-                    label = f"{audio_data['section']} - {audio_data['frame_name']} ({audio_data['timestamp']})"
-                    if audio_data.get('duration_timestamp'):
-                        label += f" [{audio_data['duration_timestamp']}]"
+            scenario_text, audio_results, status, combined_audio_value = generate_scenario_with_audio(
+                problem_text,
+                gap_keyframe_seconds=gap_keyframe,
+                gap_section_seconds=gap_section
+            )
 
-                    outputs.append(gr.update(
-                        value=audio_data['audio_path'],
-                        label=label,
-                        visible=True
-                    ))
-                else:
-                    outputs.append(gr.update(value=None, visible=False))
-            
-            return outputs
+            return [
+                scenario_text,
+                gr.update(value=status, visible=bool(status)),
+                gr.update(value=combined_audio_value, visible=combined_audio_value is not None)
+            ]
         
         # Event handlers
         generate_audio_btn.click(
             fn=handle_audio_generation_ui,
-            inputs=[problem_input],
-            outputs=[scenario_output, audio_status, audio_description, audio_section] + audio_players,
+            inputs=[problem_input, gap_keyframe_slider, gap_section_slider],
+            outputs=[scenario_output, audio_status, combined_audio_player],
             show_progress=True
         )
     
