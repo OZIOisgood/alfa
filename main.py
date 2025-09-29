@@ -82,6 +82,32 @@ def generate_silence(duration_seconds, sample_rate=PCM_SAMPLE_RATE, sample_width
     raise ValueError("Unsupported sample width for silence generation")
 
 
+def apply_fade(samples, sample_rate=PCM_SAMPLE_RATE, fade_duration=0.01):
+    """Apply a short fade-in and fade-out to reduce clicks at boundaries."""
+    if samples is None or samples.size == 0:
+        return samples
+
+    fade_samples = int(round(fade_duration * sample_rate))
+    if fade_samples <= 0:
+        return samples
+
+    fade_samples = min(fade_samples, samples.size // 2)
+    if fade_samples <= 0:
+        return samples
+
+    working = samples.astype(np.float32, copy=True)
+
+    fade_in_curve = np.linspace(0.0, 1.0, fade_samples, dtype=np.float32)
+    working[:fade_samples] *= fade_in_curve
+
+    fade_out_curve = fade_in_curve[::-1]
+    working[-fade_samples:] *= fade_out_curve
+
+    # Clip back to int16 range and cast
+    np.clip(working, np.iinfo(np.int16).min, np.iinfo(np.int16).max, out=working)
+    return working.astype(np.int16)
+
+
 def combine_audio_arrays(audio_results, gap_keyframe_seconds, gap_section_seconds, sample_rate=PCM_SAMPLE_RATE):
     """Combine individual PCM arrays with configurable gaps."""
     if not audio_results:
@@ -102,6 +128,7 @@ def combine_audio_arrays(audio_results, gap_keyframe_seconds, gap_section_second
         if samples is None:
             return None, "Missing audio bytes for one or more tracks"
 
+        samples = apply_fade(samples, sample_rate=sample_rate)
         segments.append(samples)
         previous_section = result['section']
 
