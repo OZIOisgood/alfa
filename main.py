@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 from pathlib import Path
 from google.cloud import texttospeech
 from google.oauth2 import service_account
+from io import BytesIO
+from mutagen.mp3 import MP3
 import hashlib
 import re
 
@@ -26,6 +28,18 @@ def load_prompt_template(template_name):
         return f"Error: Prompt template '{template_name}' not found in prompts directory."
     except Exception as e:
         return f"Error loading prompt template: {str(e)}"
+
+
+def format_seconds_to_timestamp(seconds):
+    """
+    Convert a length in seconds to an MM:SS timestamp string.
+    """
+    if seconds is None:
+        return None
+
+    total_seconds = int(round(seconds))
+    minutes, secs = divmod(total_seconds, 60)
+    return f"{minutes:02d}:{secs:02d}"
 
 def initialize_tts_client():
     """
@@ -77,6 +91,15 @@ def generate_audio_from_text(text, filename_prefix, client=None):
             audio_config=audio_config
         )
         
+        audio_bytes = response.audio_content
+
+        # Determine duration directly from in-memory bytes before writing to disk
+        duration_seconds = None
+        try:
+            duration_seconds = MP3(BytesIO(audio_bytes)).info.length
+        except Exception as duration_error:
+            print(f"Warning: Unable to determine audio duration: {duration_error}")
+
         # Save audio file
         audio_dir = Path(__file__).parent / "audio_output"
         audio_dir.mkdir(exist_ok=True)
@@ -87,14 +110,14 @@ def generate_audio_from_text(text, filename_prefix, client=None):
         audio_path = audio_dir / filename
         
         with open(audio_path, "wb") as out:
-            out.write(response.audio_content)
+            out.write(audio_bytes)
         
-        return str(audio_path), f"Audio generated successfully: {filename}"
+        return str(audio_path), f"Audio generated successfully: {filename}", duration_seconds
         
     except Exception as e:
-        return None, f"Error generating audio: {str(e)}"
+        return None, f"Error generating audio: {str(e)}", None
 
-def extract_voice_texts_from_scenario(scenario_text):
+def parse_scenario_json(scenario_text):
     """
     Parse the scenario JSON and extract all voice-over texts with metadata.
     """
@@ -111,9 +134,9 @@ def extract_voice_texts_from_scenario(scenario_text):
         voice_texts = []
         
         # Extract voice-over texts from sections and keyframes
-        for section in scenario_data.get('sections', []):
+        for section_index, section in enumerate(scenario_data.get('sections', [])):
             section_name = section.get('section_name', 'Unknown Section')
-            for frame in section.get('key_frames', []):
+            for frame_index, frame in enumerate(section.get('key_frames', [])):
                 voice_text = frame.get('voice_over_text', '')
                 frame_name = frame.get('name', 'Unknown Frame')
                 timestamp = frame.get('estimate_length_timestamp', '00:00')
@@ -124,15 +147,17 @@ def extract_voice_texts_from_scenario(scenario_text):
                         'frame_name': frame_name,
                         'timestamp': timestamp,
                         'text': voice_text,
-                        'filename_prefix': f"{section_name.lower().replace(' ', '_')}_{frame_name.lower().replace(' ', '_')}"
+                        'filename_prefix': f"{section_name.lower().replace(' ', '_')}_{frame_name.lower().replace(' ', '_')}",
+                        'section_index': section_index,
+                        'frame_index': frame_index
                     })
         
-        return voice_texts, None
+        return scenario_data, voice_texts, None
         
     except json.JSONDecodeError as e:
-        return [], f"Error parsing scenario JSON: {str(e)}"
+        return None, [], f"Error parsing scenario JSON: {str(e)}"
     except Exception as e:
-        return [], f"Error extracting voice texts: {str(e)}"
+        return None, [], f"Error extracting voice texts: {str(e)}"
 
 def generate_scenario_with_audio(problem_text, scenario_type="video_scenario"):
     """
@@ -144,8 +169,8 @@ def generate_scenario_with_audio(problem_text, scenario_type="video_scenario"):
     if scenario_text.startswith("Error"):
         return scenario_text, [], "Failed to generate scenario"
     
-    # Extract voice texts from scenario
-    voice_texts, extraction_error = extract_voice_texts_from_scenario(scenario_text)
+    # Parse scenario JSON and extract voice-over texts
+    scenario_data, voice_texts, extraction_error = parse_scenario_json(scenario_text)
     
     if extraction_error:
         return scenario_text, [], extraction_error
@@ -163,27 +188,57 @@ def generate_scenario_with_audio(problem_text, scenario_type="video_scenario"):
     status_messages = []
     
     for voice_data in voice_texts:
-        audio_path, message = generate_audio_from_text(
+        audio_path, message, duration_seconds = generate_audio_from_text(
             voice_data['text'], 
             voice_data['filename_prefix'], 
             tts_client
         )
         
         if audio_path:
+            duration_timestamp = format_seconds_to_timestamp(duration_seconds)
+
+            # Update scenario JSON with the measured duration
+            if duration_timestamp:
+                try:
+                    scenario_data['sections'][voice_data['section_index']]['key_frames'][voice_data['frame_index']]['voice_over_length_timestamp'] = duration_timestamp
+                except (IndexError, KeyError, TypeError):
+                    print("Warning: Unable to write voice_over_length_timestamp for one of the keyframes.")
+
             audio_results.append({
                 'section': voice_data['section'],
                 'frame_name': voice_data['frame_name'],
                 'timestamp': voice_data['timestamp'],
                 'text': voice_data['text'],
-                'audio_path': audio_path
+                'audio_path': audio_path,
+                'duration_seconds': duration_seconds,
+                'duration_timestamp': duration_timestamp
             })
-            status_messages.append(f"✅ {voice_data['frame_name']}: {message}")
+            status_appendix = f" (duration {duration_timestamp})" if duration_timestamp else ""
+            status_messages.append(f"✅ {voice_data['frame_name']}: {message}{status_appendix}")
         else:
             status_messages.append(f"❌ {voice_data['frame_name']}: {message}")
     
+    # Persist updated scenario JSON with voice-over durations
+    updated_scenario_json = scenario_text
+    scenario_file_message = ""
+    try:
+        if scenario_data is not None:
+            updated_scenario_json = json.dumps(scenario_data, ensure_ascii=False, indent=2)
+            scenario_dir = Path(__file__).parent / "scenario_output"
+            scenario_dir.mkdir(exist_ok=True)
+            scenario_hash = hashlib.md5((problem_text + updated_scenario_json).encode()).hexdigest()[:8]
+            scenario_path = scenario_dir / f"scenario_{scenario_hash}.json"
+            scenario_path.write_text(updated_scenario_json, encoding="utf-8")
+            scenario_file_message = f"📝 Scenario saved: {scenario_path.name}"
+    except Exception as scenario_error:
+        scenario_file_message = f"⚠️ Failed to save scenario JSON: {scenario_error}"
+
+    if scenario_file_message:
+        status_messages.append(scenario_file_message)
+
     final_status = f"Generated {len(audio_results)} audio tracks out of {len(voice_texts)} voice-overs:\n" + "\n".join(status_messages)
-    
-    return scenario_text, audio_results, final_status
+
+    return updated_scenario_json, audio_results, final_status
 
 def generate_video_scenario(problem_text, scenario_type="video_scenario"):
     """
@@ -336,32 +391,36 @@ def create_gradio_app():
                     <div style='border: 1px solid #ddd; padding: 15px; margin-bottom: 10px; border-radius: 8px; background: #f9f9f9;'>
                         <h4 style='margin-top: 0; color: #333;'>{audio_data['section']} - {audio_data['frame_name']}</h4>
                         <p style='margin: 5px 0; color: #666;'><strong>Timestamp:</strong> {audio_data['timestamp']}</p>
+                        <p style='margin: 5px 0; color: #666;'><strong>Duration:</strong> {audio_data.get('duration_timestamp', 'Unknown')}</p>
                         <p style='margin: 10px 0; font-style: italic; color: #444;'>"{audio_data['text']}"</p>
                         <p style='margin: 5px 0; font-size: 12px; color: #888;'>🎵 Audio Track {i+1}</p>
                     </div>
                     """
                 audio_html += "</div>"
             
-            # Prepare outputs: scenario, status, description, section visibility, status visibility, then audio players
+            # Prepare outputs: scenario, status, description, section visibility, then audio players
             outputs = [
                 scenario_text,
-                status,
+                gr.update(value=status, visible=bool(status)),  # audio_status
                 audio_html,
-                gr.Column(visible=bool(audio_results)),  # audio_section
-                gr.Textbox(visible=bool(status))  # audio_status
+                gr.update(visible=bool(audio_results))  # audio_section
             ]
             
             # Add audio player updates
             for i in range(10):
                 if i < len(audio_results):
                     audio_data = audio_results[i]
-                    outputs.append(gr.Audio(
+                    label = f"{audio_data['section']} - {audio_data['frame_name']} ({audio_data['timestamp']})"
+                    if audio_data.get('duration_timestamp'):
+                        label += f" [{audio_data['duration_timestamp']}]"
+
+                    outputs.append(gr.update(
                         value=audio_data['audio_path'],
-                        label=f"{audio_data['section']} - {audio_data['frame_name']} ({audio_data['timestamp']})",
+                        label=label,
                         visible=True
                     ))
                 else:
-                    outputs.append(gr.Audio(visible=False))
+                    outputs.append(gr.update(value=None, visible=False))
             
             return outputs
         
@@ -376,7 +435,7 @@ def create_gradio_app():
         generate_audio_btn.click(
             fn=handle_audio_generation_ui,
             inputs=[problem_input, scenario_type],
-            outputs=[scenario_output, audio_status, audio_description, audio_section, audio_status] + audio_players,
+            outputs=[scenario_output, audio_status, audio_description, audio_section] + audio_players,
             show_progress=True
         )
         
