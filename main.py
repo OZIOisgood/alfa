@@ -242,7 +242,7 @@ def initialize_tts_client():
         print(f"Error initializing TTS client: {e}")
         return None
 
-def generate_audio_from_text(text, filename_prefix, client=None):
+def generate_audio_from_text(text, filename_prefix, output_dir, client=None):
     """
     Generate audio from text using Google Cloud Text-to-Speech API.
     Uses Studio Q voice as primary, with fallback to standard voices.
@@ -285,9 +285,9 @@ def generate_audio_from_text(text, filename_prefix, client=None):
         bytes_per_second = PCM_SAMPLE_RATE * PCM_SAMPLE_WIDTH
         duration_seconds = len(audio_bytes) / bytes_per_second if audio_bytes else 0
 
-        # Save audio file
-        audio_dir = Path(__file__).parent / "audio_output"
-        audio_dir.mkdir(exist_ok=True)
+        # Save audio file to request-specific directory
+        audio_dir = output_dir / "audio"
+        audio_dir.mkdir(parents=True, exist_ok=True)
         
         # Create filename with hash to avoid conflicts
         text_hash = hashlib.md5(text.encode()).hexdigest()[:8]
@@ -351,6 +351,12 @@ def generate_scenario_with_audio_and_manim(problem_text, gap_keyframe_seconds=0.
     """
     Generate a video scenario, create audio tracks, and generate Manim animation scripts.
     """
+    # Create unified output directory structure
+    request_id = hashlib.md5((problem_text + str(os.urandom(8))).encode()).hexdigest()[:12]
+    base_output_dir = Path(__file__).parent / "output"
+    request_output_dir = base_output_dir / request_id
+    request_output_dir.mkdir(parents=True, exist_ok=True)
+    
     # First generate the scenario
     scenario_text = generate_video_scenario(problem_text)
     
@@ -361,24 +367,27 @@ def generate_scenario_with_audio_and_manim(problem_text, gap_keyframe_seconds=0.
     scenario_data, voice_texts, extraction_error = parse_scenario_json(scenario_text)
     
     if extraction_error:
-        return scenario_text, [], extraction_error
+        return scenario_text, [], extraction_error, None, []
     
     if not voice_texts:
-        return scenario_text, [], "No voice-over texts found in scenario"
+        return scenario_text, [], "No voice-over texts found in scenario", None, []
     
     # Initialize TTS client
     tts_client = initialize_tts_client()
     if tts_client is None:
-        return scenario_text, [], "Failed to initialize Text-to-Speech client"
+        return scenario_text, [], "Failed to initialize Text-to-Speech client", None, []
     
     # Generate audio for each voice-over
     audio_results = []
     status_messages = []
     
+    status_messages.append(f"📁 Output directory: output/{request_id}/\n")
+    
     for voice_data in voice_texts:
         audio_path, message, duration_seconds, audio_bytes = generate_audio_from_text(
             voice_data['text'], 
-            voice_data['filename_prefix'], 
+            voice_data['filename_prefix'],
+            request_output_dir,
             tts_client
         )
         
@@ -429,12 +438,9 @@ def generate_scenario_with_audio_and_manim(problem_text, gap_keyframe_seconds=0.
     try:
         if scenario_data is not None:
             updated_scenario_json = json.dumps(scenario_data, ensure_ascii=False, indent=2)
-            scenario_dir = Path(__file__).parent / "scenario_output"
-            scenario_dir.mkdir(exist_ok=True)
-            scenario_hash = hashlib.md5((problem_text + updated_scenario_json).encode()).hexdigest()[:8]
-            scenario_path = scenario_dir / f"scenario_{scenario_hash}.json"
+            scenario_path = request_output_dir / "scenario.json"
             scenario_path.write_text(updated_scenario_json, encoding="utf-8")
-            scenario_file_message = f"📝 Scenario saved: {scenario_path.name}"
+            scenario_file_message = f"📝 Scenario saved: output/{request_id}/scenario.json"
     except Exception as scenario_error:
         scenario_file_message = f"⚠️ Failed to save scenario JSON: {scenario_error}"
 
@@ -446,8 +452,8 @@ def generate_scenario_with_audio_and_manim(problem_text, gap_keyframe_seconds=0.
     if generate_manim and scenario_data:
         status_messages.append("\n🎬 Generating Manim animation scripts...")
         
-        manim_dir = Path(__file__).parent / "manim_scenes"
-        manim_dir.mkdir(exist_ok=True)
+        manim_dir = request_output_dir / "manim_scenes"
+        manim_dir.mkdir(parents=True, exist_ok=True)
         
         for section in scenario_data.get('sections', []):
             section_name = section.get('section_name', 'Unknown Section')
@@ -497,7 +503,7 @@ def generate_scenario_with_audio_and_manim(problem_text, gap_keyframe_seconds=0.
                     status_messages.append(f"⚠️ Failed to save {safe_filename}.py: {write_error}")
         
         if manim_files:
-            status_messages.append(f"\n🎉 Generated {len(manim_files)} Manim scene files in manim_scenes/")
+            status_messages.append(f"\n🎉 Generated {len(manim_files)} Manim scene files in output/{request_id}/manim_scenes/")
 
     final_status = f"Generated {len(audio_results)} audio tracks out of {len(voice_texts)} voice-overs:\n" + "\n".join(status_messages)
 
