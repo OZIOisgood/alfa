@@ -14,5 +14,4 @@ wheels/
 .credentials/
 
 # Output
-audio_output/
-scenario_output/
+output/
