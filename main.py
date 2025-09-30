@@ -46,6 +46,83 @@ def format_seconds_to_timestamp(seconds):
     return f"{minutes:02d}:{secs:02d}"
 
 
+def sanitize_class_name(text):
+    """Convert a string into a valid Python class name."""
+    # Remove special characters and replace spaces with underscores
+    cleaned = re.sub(r'[^a-zA-Z0-9_]', '', text.replace(' ', '_').replace('-', '_'))
+    # Ensure it starts with a letter or underscore
+    if cleaned and not cleaned[0].isalpha() and cleaned[0] != '_':
+        cleaned = '_' + cleaned
+    # Capitalize first letter of each word
+    return ''.join(word.capitalize() for word in cleaned.split('_'))
+
+
+def generate_manim_scene(section_name, keyframe_name, animation_prompt, voice_over_duration):
+    """
+    Use OpenRouter API to generate a Manim scene Python script for a keyframe.
+    """
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    
+    if not api_key:
+        return None, "Error: OPENROUTER_API_KEY not found"
+    
+    # Load Manim prompt template
+    prompt_template = load_prompt_template("manim_scene")
+    if prompt_template.startswith("Error:"):
+        return None, prompt_template
+    
+    # Generate valid class name
+    class_name = sanitize_class_name(f"{section_name}_{keyframe_name}")
+    if not class_name:
+        class_name = "ManimScene"
+    
+    # Format the prompt
+    formatted_prompt = prompt_template.replace("{section_name}", section_name)
+    formatted_prompt = formatted_prompt.replace("{keyframe_name}", keyframe_name)
+    formatted_prompt = formatted_prompt.replace("{voice_over_duration}", str(voice_over_duration))
+    formatted_prompt = formatted_prompt.replace("{animation_prompt}", animation_prompt)
+    formatted_prompt = formatted_prompt.replace("{class_name}", class_name)
+    
+    # OpenRouter API call
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://localhost:7865",
+        "X-Title": "Manim Scene Generator"
+    }
+    
+    data = {
+        "model": "openai/gpt-4o",  # Use GPT-4 for better code generation
+        "messages": [
+            {
+                "role": "user",
+                "content": formatted_prompt
+            }
+        ],
+        "temperature": 0.7,
+        "max_tokens": 3000
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        
+        result = response.json()
+        code = result['choices'][0]['message']['content']
+        
+        # Extract Python code from markdown if present
+        code_match = re.search(r'```python\s*(.*?)\s*```', code, re.DOTALL)
+        if code_match:
+            code = code_match.group(1)
+        
+        return code, None
+        
+    except Exception as e:
+        return None, f"Error generating Manim code: {str(e)}"
+
+
 def pcm_bytes_to_numpy(audio_bytes, sample_width=PCM_SAMPLE_WIDTH):
     """Convert PCM bytes into a numpy array."""
     if audio_bytes is None:
@@ -270,15 +347,15 @@ def parse_scenario_json(scenario_text):
     except Exception as e:
         return None, [], f"Error extracting voice texts: {str(e)}"
 
-def generate_scenario_with_audio(problem_text, gap_keyframe_seconds=0.5, gap_section_seconds=1.0):
+def generate_scenario_with_audio_and_manim(problem_text, gap_keyframe_seconds=0.5, gap_section_seconds=1.0, generate_manim=True):
     """
-    Generate a video scenario and create audio tracks for all voice-overs.
+    Generate a video scenario, create audio tracks, and generate Manim animation scripts.
     """
     # First generate the scenario
     scenario_text = generate_video_scenario(problem_text)
     
     if scenario_text.startswith("Error"):
-        return scenario_text, [], "Failed to generate scenario"
+        return scenario_text, [], "Failed to generate scenario", None, []
     
     # Parse scenario JSON and extract voice-over texts
     scenario_data, voice_texts, extraction_error = parse_scenario_json(scenario_text)
@@ -364,9 +441,67 @@ def generate_scenario_with_audio(problem_text, gap_keyframe_seconds=0.5, gap_sec
     if scenario_file_message:
         status_messages.append(scenario_file_message)
 
+    # Generate Manim scene files if requested
+    manim_files = []
+    if generate_manim and scenario_data:
+        status_messages.append("\n🎬 Generating Manim animation scripts...")
+        
+        manim_dir = Path(__file__).parent / "manim_scenes"
+        manim_dir.mkdir(exist_ok=True)
+        
+        for section in scenario_data.get('sections', []):
+            section_name = section.get('section_name', 'Unknown Section')
+            
+            for frame in section.get('key_frames', []):
+                frame_name = frame.get('name', 'Unknown Frame')
+                animation_prompt = frame.get('animation_prompt', '')
+                voice_over_length = frame.get('voice_over_length_timestamp', '00:05')
+                
+                if not animation_prompt:
+                    continue
+                
+                # Parse timestamp to seconds
+                try:
+                    parts = voice_over_length.split(':')
+                    duration_seconds = int(parts[0]) * 60 + int(parts[1])
+                except (ValueError, IndexError):
+                    duration_seconds = 5  # Default fallback
+                
+                # Generate Manim code
+                manim_code, error = generate_manim_scene(
+                    section_name,
+                    frame_name,
+                    animation_prompt,
+                    duration_seconds
+                )
+                
+                if error:
+                    status_messages.append(f"⚠️ Manim generation failed for {frame_name}: {error}")
+                    continue
+                
+                # Save to file
+                safe_filename = sanitize_class_name(f"{section_name}_{frame_name}")
+                manim_file_path = manim_dir / f"{safe_filename}.py"
+                
+                try:
+                    manim_file_path.write_text(manim_code, encoding='utf-8')
+                    manim_files.append({
+                        'section': section_name,
+                        'frame': frame_name,
+                        'path': str(manim_file_path),
+                        'class_name': safe_filename,
+                        'duration': duration_seconds
+                    })
+                    status_messages.append(f"✅ Manim script: {safe_filename}.py")
+                except Exception as write_error:
+                    status_messages.append(f"⚠️ Failed to save {safe_filename}.py: {write_error}")
+        
+        if manim_files:
+            status_messages.append(f"\n🎉 Generated {len(manim_files)} Manim scene files in manim_scenes/")
+
     final_status = f"Generated {len(audio_results)} audio tracks out of {len(voice_texts)} voice-overs:\n" + "\n".join(status_messages)
 
-    return updated_scenario_json, audio_results, final_status, combined_audio_value
+    return updated_scenario_json, audio_results, final_status, combined_audio_value, manim_files
 
 def generate_video_scenario(problem_text):
     """
@@ -503,11 +638,12 @@ def create_gradio_app():
         )
         
         def handle_audio_generation_ui(problem_text, gap_keyframe, gap_section):
-            """Handle scenario generation with audio for UI."""
-            scenario_text, audio_results, status, combined_audio_value = generate_scenario_with_audio(
+            """Handle scenario generation with audio and Manim scripts for UI."""
+            scenario_text, audio_results, status, combined_audio_value, manim_files = generate_scenario_with_audio_and_manim(
                 problem_text,
                 gap_keyframe_seconds=gap_keyframe,
-                gap_section_seconds=gap_section
+                gap_section_seconds=gap_section,
+                generate_manim=True
             )
 
             return [
