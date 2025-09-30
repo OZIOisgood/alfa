@@ -1,6 +1,7 @@
 import os
 import json
 import wave
+import subprocess
 import requests
 import gradio as gr
 from dotenv import load_dotenv
@@ -227,6 +228,99 @@ def numpy_audio_to_gradio_value(samples, sample_rate=PCM_SAMPLE_RATE):
         data = np.ascontiguousarray(samples)
 
     return sample_rate, data
+
+
+def render_manim_scene(script_path, class_name, output_dir, quality='m'):
+    """
+    Render a Manim scene to video using local manim command.
+    
+    Args:
+        script_path: Path to the Python file containing the scene
+        class_name: Name of the Scene class to render
+        output_dir: Directory where output video should be saved
+        quality: Quality setting (l=480p, m=720p, h=1080p, k=4K)
+    
+    Returns:
+        (video_path, error_message) tuple
+    """
+    try:
+        # Prepare output directory
+        video_output_dir = Path(output_dir) / "videos"
+        video_output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Prepare manim command with custom media directory
+        quality_flag = f"-q{quality}"
+        script_parent = Path(script_path).parent
+        
+        # Get current environment and ensure PATH is inherited
+        import os
+        import shutil as sh
+        env = os.environ.copy()
+        
+        # Try to locate ffmpeg explicitly and add to PATH if found
+        ffmpeg_path = sh.which("ffmpeg")
+        if ffmpeg_path:
+            ffmpeg_dir = str(Path(ffmpeg_path).parent)
+            # Ensure ffmpeg directory is in PATH
+            if ffmpeg_dir not in env.get("PATH", ""):
+                env["PATH"] = ffmpeg_dir + os.pathsep + env.get("PATH", "")
+        
+        # Run manim render command with custom media directory
+        result = subprocess.run(
+            ["manim", quality_flag, "--media_dir", str(script_parent / "media"), str(script_path), class_name],
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout per scene
+            cwd=str(script_parent),  # Run from script directory
+            env=env  # Inherit full environment including PATH with ffmpeg
+        )
+        
+        if result.returncode != 0:
+            # Check for common errors
+            error_msg = result.stderr + result.stdout  # Combine both streams
+            
+            # Check for syntax warnings/errors in the generated code
+            if "SyntaxWarning" in error_msg and "invalid escape sequence" in error_msg:
+                return None, "Generated code has LaTeX escape sequence error. Please regenerate the scene."
+            elif "FileNotFoundError" in error_msg and "latex" in error_msg.lower():
+                return None, "LaTeX not installed. Please install MiKTeX or TeX Live to render text/math in animations."
+            elif "FileNotFoundError" in error_msg:
+                return None, f"Missing dependency. Full error: {error_msg[:800]}"
+            elif "Couldn't find ffmpeg" in error_msg:
+                return None, "FFmpeg not found in PATH. Please ensure ffmpeg is installed and added to your system PATH."
+            else:
+                return None, f"Manim render failed: {error_msg[:800]}"
+        
+        # Manim saves to {media_dir}/videos/{ScriptName}/{quality}/
+        script_name = Path(script_path).stem
+        quality_map = {'l': '480p15', 'm': '720p30', 'h': '1080p60', 'k': '2160p60'}
+        quality_folder = quality_map.get(quality, '720p30')
+        
+        # Look for the rendered video
+        media_dir = script_parent / "media" / "videos" / script_name / quality_folder
+        
+        if not media_dir.exists():
+            return None, f"Output directory not found: {media_dir}"
+        
+        # Find the MP4 file
+        video_files = list(media_dir.glob("*.mp4"))
+        if not video_files:
+            return None, f"No video file found in {media_dir}"
+        
+        # Copy to output directory
+        source_video = video_files[0]
+        dest_video = video_output_dir / f"{class_name}.mp4"
+        
+        # Copy file to output location
+        import shutil
+        shutil.copy2(source_video, dest_video)
+        
+        return str(dest_video), None
+        
+    except subprocess.TimeoutExpired:
+        return None, f"Render timeout (>5 minutes) for {class_name}"
+    except Exception as e:
+        return None, f"Render error: {str(e)}"
 
 def initialize_tts_client():
     """
@@ -504,6 +598,37 @@ def generate_scenario_with_audio_and_manim(problem_text, gap_keyframe_seconds=0.
         
         if manim_files:
             status_messages.append(f"\n🎉 Generated {len(manim_files)} Manim scene files in output/{request_id}/manim_scenes/")
+            
+            # Render Manim scenes to video
+            status_messages.append("\n🎥 Rendering animations to video...")
+            video_files = []
+            
+            for manim_info in manim_files:
+                script_path = manim_info['path']
+                class_name = manim_info['class_name']
+                
+                status_messages.append(f"⏳ Rendering {class_name}...")
+                
+                video_path, render_error = render_manim_scene(
+                    script_path,
+                    class_name,
+                    request_output_dir,
+                    quality='m'  # 720p
+                )
+                
+                if render_error:
+                    status_messages.append(f"❌ Render failed for {class_name}: {render_error}")
+                else:
+                    video_files.append({
+                        'section': manim_info['section'],
+                        'frame': manim_info['frame'],
+                        'video_path': video_path,
+                        'class_name': class_name
+                    })
+                    status_messages.append(f"✅ Video rendered: {class_name}.mp4")
+            
+            if video_files:
+                status_messages.append(f"\n🎬 Rendered {len(video_files)} videos in output/{request_id}/videos/")
 
     final_status = f"Generated {len(audio_results)} audio tracks out of {len(voice_texts)} voice-overs:\n" + "\n".join(status_messages)
 
