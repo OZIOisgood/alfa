@@ -33,6 +33,9 @@ MANIM BEST PRACTICES:
 - For text: Text() or Tex()
 - For geometric shapes: Circle(), Line(), Dot(), Polygon(), etc.
 - Use colors from manim.utils.color (BLUE, RED, GREEN, YELLOW, etc.)
+- **CRITICAL**: ALWAYS use raw strings (r"...") for LaTeX strings containing backslashes
+  - CORRECT: MathTex(r"\pi", r"\cdot", r"\frac{1}{2}")
+  - WRONG: MathTex("\pi", "\cdot", "\frac{1}{2}")  # Will cause SyntaxWarning or errors
 
 OUTPUT FORMAT:
 Generate ONLY the Python code with proper structure:
@@ -76,12 +79,17 @@ class DrawCoordinateGrid(Scene):
         self.play(Create(plane), run_time=2.0)
         self.wait(0.5)
         
-        # Add labels
+        # Add labels (ALWAYS use raw strings for LaTeX!)
         labels = plane.get_axis_labels(x_label="x", y_label="y")
         self.play(Write(labels), run_time=1.0)
         
+        # Show a formula example with proper raw strings
+        formula = MathTex(r"A", "=", r"\pi", "r^2", font_size=48)
+        formula.to_edge(UP)
+        self.play(FadeIn(formula), run_time=1.0)
+        
         # Hold final frame to match voice-over duration
-        self.wait(1.5)  # Total: 2.0 + 0.5 + 1.0 + 1.5 = 5.0 seconds
+        self.wait(0.5)  # Total: 2.0 + 0.5 + 1.0 + 1.0 + 0.5 = 5.0 seconds
 ```
 
 Now generate the Manim scene for the given keyframe. Make it visually appealing and mathematically accurate.
