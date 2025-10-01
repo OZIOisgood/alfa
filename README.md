@@ -2,11 +2,6 @@
 	<img src="assets/alfa.png" alt="ALFA Logo" height="50%" />
 </div>
 
-## What's next
-
-* 📹 Publish demo videos and examples
-* 🌐 Deploy web version
-
 # ALFA — Short Math Explainer Generator
 
 > **TL;DR:** ALFA is an app that turns any math problem you paste in into a **30–180s** video explanation with voice-over narration.
@@ -57,10 +52,11 @@ Visit **http://127.0.0.1:7865** and try it out!
 * 🚧 Testing and optimization ongoing
 * 🎬 Sample videos: Coming soon
 
-## What’s next
 
-* Publish a minimal demo page and 3 example clips
-* Add a “Try your own problem” input
+## What's next
+
+* 📹 Publish demo videos and examples
+* 🌐 Deploy web version
 
 ## Want to help?
 
