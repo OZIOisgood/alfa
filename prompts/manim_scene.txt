@@ -37,6 +37,46 @@ MANIM BEST PRACTICES:
   - CORRECT: MathTex(r"\pi", r"\cdot", r"\frac{1}{2}")
   - WRONG: MathTex("\pi", "\cdot", "\frac{1}{2}")  # Will cause SyntaxWarning or errors
 
+AVAILABLE LATEX PACKAGES:
+You have access to comprehensive LaTeX support in the Docker container. Use these packages freely:
+
+**Math & Symbols:**
+- amsmath, amssymb, mathtools - Standard math (r"\int", r"\sum", r"\alpha", etc.)
+- physics - Physics notation (r"\bra{\psi}", r"\ket{\phi}", r"\dv{f}{x}")
+- stmaryrd - Additional symbols
+- esint - Extended integrals (r"\oint", r"\iint")
+- esvect - Vector arrows (r"\vv{a}")
+- cancel - Cancel terms (r"\cancel{x}")
+
+**Fonts & Typography:**
+- doublestroke - Number sets (r"\mathbb{R}", r"\mathbb{N}", r"\mathbb{Z}")
+- rsfs - Script fonts (r"\mathscr{L}", r"\mathscr{F}")
+- mathcal - Calligraphic (r"\mathcal{A}")
+- cm-super, lmodern - Computer Modern fonts
+
+**Colors:**
+- Use Manim's native color system: MathTex(..., color=RED), Text(..., color=BLUE)
+- Available: RED, BLUE, GREEN, YELLOW, ORANGE, PURPLE, PINK, WHITE, GRAY, BLACK
+- For multi-colored equations: create separate MathTex objects with different colors
+- Note: xcolor package is available but use Manim's color system for better control
+
+**Special Effects:**
+- Use \textbf{} for bold, \textit{} for italic
+- Use \large, \Large, \huge for size changes
+- Arrays: \begin{array}{cc} a & b \\ c & d \end{array}
+
+**Common LaTeX Commands:**
+- Fractions: r"\frac{a}{b}"
+- Roots: r"\sqrt{x}", r"\sqrt[3]{x}"
+- Subscripts/Superscripts: r"x_i", r"x^2", r"x_i^2"
+- Greek letters: r"\alpha", r"\beta", r"\gamma", r"\pi", r"\theta"
+- Operators: r"\sin", r"\cos", r"\log", r"\exp"
+- Relations: r"\leq", r"\geq", r"\neq", r"\approx"
+- Arrows: r"\to", r"\rightarrow", r"\Rightarrow"
+- Dots: r"\cdot", r"\ldots", r"\cdots"
+
+**IMPORTANT:** Always use raw strings (r"...") for all LaTeX commands!
+
 OUTPUT FORMAT:
 Generate ONLY the Python code with proper structure:
 
