@@ -230,15 +230,16 @@ def numpy_audio_to_gradio_value(samples, sample_rate=PCM_SAMPLE_RATE):
     return sample_rate, data
 
 
-def render_manim_scene(script_path, class_name, output_dir, quality='m'):
+def render_manim_scene(script_path, class_name, output_dir, quality='m', use_docker=True):
     """
-    Render a Manim scene to video using local manim command.
+    Render a Manim scene to video using Docker (preferred) or local manim command.
     
     Args:
         script_path: Path to the Python file containing the scene
         class_name: Name of the Scene class to render
         output_dir: Directory where output video should be saved
         quality: Quality setting (l=480p, m=720p, h=1080p, k=4K)
+        use_docker: Whether to use Docker for rendering (default: True)
     
     Returns:
         (video_path, error_message) tuple
@@ -248,61 +249,123 @@ def render_manim_scene(script_path, class_name, output_dir, quality='m'):
         video_output_dir = Path(output_dir) / "videos"
         video_output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Prepare manim command with custom media directory
         quality_flag = f"-q{quality}"
         script_parent = Path(script_path).parent
-        
-        # Get current environment and ensure PATH is inherited
-        import os
-        import shutil as sh
-        env = os.environ.copy()
-        
-        # Try to locate ffmpeg explicitly and add to PATH if found
-        ffmpeg_path = sh.which("ffmpeg")
-        if ffmpeg_path:
-            ffmpeg_dir = str(Path(ffmpeg_path).parent)
-            # Ensure ffmpeg directory is in PATH
-            if ffmpeg_dir not in env.get("PATH", ""):
-                env["PATH"] = ffmpeg_dir + os.pathsep + env.get("PATH", "")
-        
-        # Run manim render command with custom media directory
-        result = subprocess.run(
-            ["manim", quality_flag, "--media_dir", str(script_parent / "media"), str(script_path), class_name],
-            capture_output=True,
-            text=True,
-            timeout=300,  # 5 minute timeout per scene
-            cwd=str(script_parent),  # Run from script directory
-            env=env  # Inherit full environment including PATH with ffmpeg
-        )
-        
-        if result.returncode != 0:
-            # Check for common errors
-            error_msg = result.stderr + result.stdout  # Combine both streams
-            
-            # Check for syntax warnings/errors in the generated code
-            if "SyntaxWarning" in error_msg and "invalid escape sequence" in error_msg:
-                return None, "Generated code has LaTeX escape sequence error. Please regenerate the scene."
-            elif "FileNotFoundError" in error_msg and "latex" in error_msg.lower():
-                return None, "LaTeX not installed. Please install MiKTeX or TeX Live to render text/math in animations."
-            elif "FileNotFoundError" in error_msg:
-                return None, f"Missing dependency. Full error: {error_msg[:800]}"
-            elif "Couldn't find ffmpeg" in error_msg:
-                return None, "FFmpeg not found in PATH. Please ensure ffmpeg is installed and added to your system PATH."
-            else:
-                return None, f"Manim render failed: {error_msg[:800]}"
-        
-        # Manim saves to {media_dir}/videos/{ScriptName}/{quality}/
         script_name = Path(script_path).stem
         quality_map = {'l': '480p15', 'm': '720p30', 'h': '1080p60', 'k': '2160p60'}
         quality_folder = quality_map.get(quality, '720p30')
         
-        # Look for the rendered video
+        if use_docker:
+            # Use Docker for isolated rendering with LaTeX support
+            import os
+            
+            # Get absolute paths for Docker volume mounting
+            project_root = Path(__file__).parent.resolve()
+            
+            # Handle both relative and absolute paths
+            script_path_obj = Path(script_path)
+            if not script_path_obj.is_absolute():
+                # Relative path - resolve from project root
+                script_abs = (project_root / script_path_obj).resolve()
+            else:
+                script_abs = script_path_obj.resolve()
+            
+            # Calculate relative path from project root to script
+            try:
+                script_rel = script_abs.relative_to(project_root)
+            except ValueError:
+                # Script is outside project root, fallback to local
+                return render_manim_scene(script_path, class_name, output_dir, quality, use_docker=False)
+            
+            # Docker volume mount paths (Windows style -> Linux container paths)
+            # Mount project root as /manim in container
+            volume_mount = f"{project_root}:/manim"
+            
+            # Container paths
+            container_script_path = f"/manim/{script_rel.as_posix()}"
+            container_media_dir = f"/manim/{script_rel.parent.as_posix()}/media"
+            
+            # Build Docker command
+            docker_cmd = [
+                "docker", "run", "--rm",
+                "-v", volume_mount,
+                "-w", "/manim",
+                "alfa-manim:latest",
+                quality_flag,
+                "--media_dir", container_media_dir,
+                container_script_path,
+                class_name
+            ]
+            
+            # Run Docker command
+            result = subprocess.run(
+                docker_cmd,
+                capture_output=True,
+                text=True,
+                timeout=300,
+                encoding='utf-8',
+                errors='replace'  # Replace non-UTF8 characters instead of failing
+            )
+            
+            if result.returncode != 0:
+                # Safely combine output streams
+                error_msg = (result.stderr or "") + (result.stdout or "")
+                
+                # Check if Docker is available
+                if "docker" in error_msg.lower() and ("not found" in error_msg.lower() or "cannot connect" in error_msg.lower()):
+                    # Fallback to local rendering
+                    print("⚠️ Docker not available, falling back to local manim...")
+                    return render_manim_scene(script_path, class_name, output_dir, quality, use_docker=False)
+                
+                # Check for other errors
+                if "SyntaxWarning" in error_msg and "invalid escape sequence" in error_msg:
+                    return None, "Generated code has LaTeX escape sequence error. Please regenerate the scene."
+                else:
+                    return None, f"Docker render failed: {error_msg[:800]}"
+        
+        else:
+            # Local rendering (fallback)
+            import os
+            import shutil as sh
+            env = os.environ.copy()
+            
+            # Try to locate ffmpeg explicitly and add to PATH if found
+            ffmpeg_path = sh.which("ffmpeg")
+            if ffmpeg_path:
+                ffmpeg_dir = str(Path(ffmpeg_path).parent)
+                if ffmpeg_dir not in env.get("PATH", ""):
+                    env["PATH"] = ffmpeg_dir + os.pathsep + env.get("PATH", "")
+            
+            # Run manim render command with custom media directory
+            result = subprocess.run(
+                ["manim", quality_flag, "--media_dir", str(script_parent / "media"), str(script_path), class_name],
+                capture_output=True,
+                text=True,
+                timeout=300,
+                cwd=str(script_parent),
+                env=env
+            )
+            
+            if result.returncode != 0:
+                error_msg = result.stderr + result.stdout
+                
+                if "SyntaxWarning" in error_msg and "invalid escape sequence" in error_msg:
+                    return None, "Generated code has LaTeX escape sequence error. Please regenerate the scene."
+                elif "FileNotFoundError" in error_msg and "latex" in error_msg.lower():
+                    return None, "LaTeX not installed. Please install MiKTeX or TeX Live to render text/math in animations."
+                elif "FileNotFoundError" in error_msg:
+                    return None, f"Missing dependency. Full error: {error_msg[:800]}"
+                elif "Couldn't find ffmpeg" in error_msg:
+                    return None, "FFmpeg not found in PATH. Please ensure ffmpeg is installed and added to your system PATH."
+                else:
+                    return None, f"Manim render failed: {error_msg[:800]}"
+        
+        # Find rendered video (same for both Docker and local)
         media_dir = script_parent / "media" / "videos" / script_name / quality_folder
         
         if not media_dir.exists():
             return None, f"Output directory not found: {media_dir}"
         
-        # Find the MP4 file
         video_files = list(media_dir.glob("*.mp4"))
         if not video_files:
             return None, f"No video file found in {media_dir}"
@@ -311,7 +374,6 @@ def render_manim_scene(script_path, class_name, output_dir, quality='m'):
         source_video = video_files[0]
         dest_video = video_output_dir / f"{class_name}.mp4"
         
-        # Copy file to output location
         import shutil
         shutil.copy2(source_video, dest_video)
         

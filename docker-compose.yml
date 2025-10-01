@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  manim:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: alfa-manim:latest
+    container_name: alfa-manim-renderer
+    volumes:
+      # Mount the entire output directory for easy access
+      - ./output:/manim/output
+    working_dir: /manim
+    # No command specified - will be passed when running
+    stdin_open: true
+    tty: true
