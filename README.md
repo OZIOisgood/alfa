@@ -1,10 +1,15 @@
 <div align="center">
-	<img src="assets/alfa.png" alt="ALFA Logo" width="50%" />
+	<img src="assets/alfa.png" alt="ALFA Logo" height="50%" />
 </div>
+
+## What's next
+
+* 📹 Publish demo videos and examples
+* 🌐 Deploy web version
 
 # ALFA — Short Math Explainer Generator
 
-> **TL;DR:** ALFA is an app that turns any math problem you paste in into a **30–180s** video explanation.
+> **TL;DR:** ALFA is an app that turns any math problem you paste in into a **30–180s** video explanation with voice-over narration.
 
 ## What it does
 
@@ -23,23 +28,39 @@ Students, self‑learners, and busy folks who want fast, visual clarity instead 
 
 ## How it works (simple)
 
-1. Input: paste your problem
-2. Generate: script + visuals + voice
-3. Output: a clean 30–180s explainer clip
+1. **Input**: Paste your problem + choose quality & voice-over options
+2. **Generate**: AI creates script, animations, and voice-over
+3. **Process**: Videos are rendered and combined automatically
+4. **Output**: A complete video ready to watch or download
 
-> First version ships as a **simple Gradio app**. (Under the hood: LLM for script, Manim for visuals, voiceover engine.)
+> Built with **Gradio** (UI), **GPT-4** (script generation), **Manim** (animations), **Google TTS** (voice-over), and **FFmpeg** (video processing).
+
+## Quick Start
+
+```bash
+# Install dependencies
+uv sync
+
+# Start the app
+uv run python main.py
+```
+
+Visit **http://127.0.0.1:7865** and try it out!
+
+📖 See [QUICK_START.md](QUICK_START.md) for detailed usage guide.
 
 ## Status
 
-* ✅ Concept locked: micro-length, single‑idea explainers
-* 🚧 Prototype: basic flow in progress
-* 🎬 Pilot: first sample problems queued (algebra & geometry)
+* ✅ Core features complete: video generation, audio sync, quality selection
+* ✅ Docker support for isolated Manim rendering
+* ✅ Comprehensive LaTeX package support
+* 🚧 Testing and optimization ongoing
+* 🎬 Sample videos: Coming soon
 
 ## What’s next
 
 * Publish a minimal demo page and 3 example clips
 * Add a “Try your own problem” input
-* Collect quick feedback and iterate on clarity/pacing
 
 ## Want to help?
 

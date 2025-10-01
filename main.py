@@ -230,6 +230,153 @@ def numpy_audio_to_gradio_value(samples, sample_rate=PCM_SAMPLE_RATE):
     return sample_rate, data
 
 
+def get_video_duration(video_path):
+    """Get duration of a video file using ffprobe."""
+    try:
+        cmd = [
+            'ffprobe', '-v', 'error', '-show_entries', 
+            'format=duration', '-of', 
+            'default=noprint_wrappers=1:nokey=1', str(video_path)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return float(result.stdout.strip())
+    except Exception as e:
+        print(f"Error getting video duration: {e}")
+        return None
+
+
+def combine_video_with_audio(video_path, audio_path, output_path, audio_timing='auto'):
+    """
+    Combine a video file with an audio file.
+    
+    Args:
+        video_path: Path to video file
+        audio_path: Path to audio file
+        output_path: Path for output video
+        audio_timing: How to sync audio - 'start', 'center', 'auto', or float (delay in seconds)
+    
+    Returns:
+        Tuple of (success: bool, error_message: str or None)
+    """
+    try:
+        video_duration = get_video_duration(video_path)
+        if video_duration is None:
+            return False, "Could not determine video duration"
+        
+        # Get audio duration
+        with wave.open(str(audio_path), 'rb') as wav:
+            frames = wav.getnframes()
+            rate = wav.getframerate()
+            audio_duration = frames / float(rate)
+        
+        # Determine audio delay
+        if audio_timing == 'auto':
+            # Auto: If video is much longer than audio, center the audio
+            # Otherwise start immediately
+            if video_duration > audio_duration * 1.5:
+                delay = (video_duration - audio_duration) / 2
+            else:
+                delay = 0
+        elif audio_timing == 'center':
+            delay = max(0, (video_duration - audio_duration) / 2)
+        elif audio_timing == 'start':
+            delay = 0
+        elif isinstance(audio_timing, (int, float)):
+            delay = max(0, float(audio_timing))
+        else:
+            delay = 0
+        
+        # Build ffmpeg command
+        # Note: Manim videos have no audio stream, so we just add the audio as a new stream
+        if delay > 0:
+            # If there's a delay, use adelay filter
+            cmd = [
+                'ffmpeg', '-y',  # Overwrite output
+                '-i', str(video_path),
+                '-i', str(audio_path),
+                '-filter_complex',
+                f'[1:a]adelay={int(delay * 1000)}|{int(delay * 1000)}[aout]',
+                '-map', '0:v',
+                '-map', '[aout]',
+                '-c:v', 'copy',  # Copy video without re-encoding
+                '-c:a', 'aac',
+                '-b:a', '192k',
+                '-shortest',
+                str(output_path)
+            ]
+        else:
+            # No delay, just add audio directly
+            cmd = [
+                'ffmpeg', '-y',  # Overwrite output
+                '-i', str(video_path),
+                '-i', str(audio_path),
+                '-map', '0:v',
+                '-map', '1:a',
+                '-c:v', 'copy',  # Copy video without re-encoding
+                '-c:a', 'aac',
+                '-b:a', '192k',
+                '-shortest',
+                str(output_path)
+            ]
+        
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return True, None
+        
+    except subprocess.CalledProcessError as e:
+        return False, f"FFmpeg error: {e.stderr}"
+    except Exception as e:
+        return False, str(e)
+
+
+def concatenate_videos(video_paths, output_path):
+    """
+    Concatenate multiple video files into one.
+    
+    Args:
+        video_paths: List of paths to video files
+        output_path: Path for output video
+    
+    Returns:
+        Tuple of (success: bool, error_message: str or None)
+    """
+    if not video_paths:
+        return False, "No videos to concatenate"
+    
+    try:
+        # Create a temporary file list for ffmpeg
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt', encoding='utf-8') as f:
+            for video_path in video_paths:
+                # FFmpeg concat requires absolute paths and proper escaping
+                abs_path = Path(video_path).resolve()
+                # Escape single quotes and wrap in single quotes
+                escaped = str(abs_path).replace("'", "'\\''")
+                f.write(f"file '{escaped}'\n")
+            temp_list = f.name
+        
+        # Concatenate using ffmpeg
+        cmd = [
+            'ffmpeg', '-y',
+            '-f', 'concat',
+            '-safe', '0',
+            '-i', temp_list,
+            '-c', 'copy',  # Copy without re-encoding for speed
+            str(output_path)
+        ]
+        
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
+        
+        # Clean up temp file
+        os.unlink(temp_list)
+        
+        return True, None
+        
+    except subprocess.CalledProcessError as e:
+        return False, f"FFmpeg error: {e.stderr}"
+    except Exception as e:
+        return False, str(e)
+
+
 def render_manim_scene(script_path, class_name, output_dir, quality='m', use_docker=True):
     """
     Render a Manim scene to video using Docker (preferred) or local manim command.
@@ -503,9 +650,24 @@ def parse_scenario_json(scenario_text):
     except Exception as e:
         return None, [], f"Error extracting voice texts: {str(e)}"
 
-def generate_scenario_with_audio_and_manim(problem_text, gap_keyframe_seconds=0.5, gap_section_seconds=1.0, generate_manim=True):
+def generate_scenario_with_audio_and_manim(
+    problem_text, 
+    gap_keyframe_seconds=0.5, 
+    gap_section_seconds=1.0, 
+    generate_manim=True,
+    generate_voiceover=True,
+    quality='m'
+):
     """
     Generate a video scenario, create audio tracks, and generate Manim animation scripts.
+    
+    Args:
+        problem_text: The math problem to solve
+        gap_keyframe_seconds: Gap between keyframes in audio
+        gap_section_seconds: Gap between sections in audio
+        generate_manim: Whether to generate Manim animations
+        generate_voiceover: Whether to generate voice-over audio
+        quality: Video quality ('l'=480p, 'm'=720p, 'h'=1080p, 'k'=4K)
     """
     # Create unified output directory structure
     request_id = hashlib.md5((problem_text + str(os.urandom(8))).encode()).hexdigest()[:12]
@@ -517,21 +679,23 @@ def generate_scenario_with_audio_and_manim(problem_text, gap_keyframe_seconds=0.
     scenario_text = generate_video_scenario(problem_text)
     
     if scenario_text.startswith("Error"):
-        return scenario_text, [], "Failed to generate scenario", None, []
+        return scenario_text, [], "Failed to generate scenario", None, [], None
     
     # Parse scenario JSON and extract voice-over texts
     scenario_data, voice_texts, extraction_error = parse_scenario_json(scenario_text)
     
     if extraction_error:
-        return scenario_text, [], extraction_error, None, []
+        return scenario_text, [], extraction_error, None, [], None
     
     if not voice_texts:
-        return scenario_text, [], "No voice-over texts found in scenario", None, []
+        return scenario_text, [], "No voice-over texts found in scenario", None, [], None
     
-    # Initialize TTS client
-    tts_client = initialize_tts_client()
-    if tts_client is None:
-        return scenario_text, [], "Failed to initialize Text-to-Speech client", None, []
+    # Initialize TTS client only if generating voiceovers
+    tts_client = None
+    if generate_voiceover:
+        tts_client = initialize_tts_client()
+        if tts_client is None:
+            return scenario_text, [], "Failed to initialize Text-to-Speech client", None, [], None
     
     # Generate audio for each voice-over
     audio_results = []
@@ -539,38 +703,41 @@ def generate_scenario_with_audio_and_manim(problem_text, gap_keyframe_seconds=0.
     
     status_messages.append(f"📁 Output directory: output/{request_id}/\n")
     
-    for voice_data in voice_texts:
-        audio_path, message, duration_seconds, audio_bytes = generate_audio_from_text(
-            voice_data['text'], 
-            voice_data['filename_prefix'],
-            request_output_dir,
-            tts_client
-        )
-        
-        if audio_path:
-            duration_timestamp = format_seconds_to_timestamp(duration_seconds)
+    if not generate_voiceover:
+        status_messages.append("🔇 Voice-over generation disabled\n")
+    else:
+        for voice_data in voice_texts:
+            audio_path, message, duration_seconds, audio_bytes = generate_audio_from_text(
+                voice_data['text'], 
+                voice_data['filename_prefix'],
+                request_output_dir,
+                tts_client
+            )
+            
+            if audio_path:
+                duration_timestamp = format_seconds_to_timestamp(duration_seconds)
 
-            # Update scenario JSON with the measured duration
-            if duration_timestamp:
-                try:
-                    scenario_data['sections'][voice_data['section_index']]['key_frames'][voice_data['frame_index']]['voice_over_length_timestamp'] = duration_timestamp
-                except (IndexError, KeyError, TypeError):
-                    print("Warning: Unable to write voice_over_length_timestamp for one of the keyframes.")
+                # Update scenario JSON with the measured duration
+                if duration_timestamp:
+                    try:
+                        scenario_data['sections'][voice_data['section_index']]['key_frames'][voice_data['frame_index']]['voice_over_length_timestamp'] = duration_timestamp
+                    except (IndexError, KeyError, TypeError):
+                        print("Warning: Unable to write voice_over_length_timestamp for one of the keyframes.")
 
-            audio_results.append({
-                'section': voice_data['section'],
-                'frame_name': voice_data['frame_name'],
-                'timestamp': voice_data['timestamp'],
-                'text': voice_data['text'],
-                'audio_path': audio_path,
-                'duration_seconds': duration_seconds,
-                'duration_timestamp': duration_timestamp,
-                'audio_bytes': audio_bytes
-            })
-            status_appendix = f" (duration {duration_timestamp})" if duration_timestamp else ""
-            status_messages.append(f"✅ {voice_data['frame_name']}: {message}{status_appendix}")
-        else:
-            status_messages.append(f"❌ {voice_data['frame_name']}: {message}")
+                audio_results.append({
+                    'section': voice_data['section'],
+                    'frame_name': voice_data['frame_name'],
+                    'timestamp': voice_data['timestamp'],
+                    'text': voice_data['text'],
+                    'audio_path': audio_path,
+                    'duration_seconds': duration_seconds,
+                    'duration_timestamp': duration_timestamp,
+                    'audio_bytes': audio_bytes
+                })
+                status_appendix = f" (duration {duration_timestamp})" if duration_timestamp else ""
+                status_messages.append(f"✅ {voice_data['frame_name']}: {message}{status_appendix}")
+            else:
+                status_messages.append(f"❌ {voice_data['frame_name']}: {message}")
     
     combined_audio_value = None
     if audio_results:
@@ -665,7 +832,7 @@ def generate_scenario_with_audio_and_manim(problem_text, gap_keyframe_seconds=0.
             status_messages.append("\n🎥 Rendering animations to video...")
             video_files = []
             
-            for manim_info in manim_files:
+            for idx, manim_info in enumerate(manim_files):
                 script_path = manim_info['path']
                 class_name = manim_info['class_name']
                 
@@ -675,26 +842,92 @@ def generate_scenario_with_audio_and_manim(problem_text, gap_keyframe_seconds=0.
                     script_path,
                     class_name,
                     request_output_dir,
-                    quality='m'  # 720p
+                    quality=quality
                 )
                 
                 if render_error:
                     status_messages.append(f"❌ Render failed for {class_name}: {render_error}")
                 else:
-                    video_files.append({
+                    video_info = {
                         'section': manim_info['section'],
                         'frame': manim_info['frame'],
                         'video_path': video_path,
-                        'class_name': class_name
-                    })
+                        'class_name': class_name,
+                        'index': idx
+                    }
+                    video_files.append(video_info)
                     status_messages.append(f"✅ Video rendered: {class_name}.mp4")
             
             if video_files:
                 status_messages.append(f"\n🎬 Rendered {len(video_files)} videos in output/{request_id}/videos/")
+                
+                # Combine videos with audio if voiceover was generated
+                final_video_path = None
+                if generate_voiceover and audio_results:
+                    status_messages.append("\n🎙️ Combining videos with voice-overs...")
+                    
+                    videos_with_audio_dir = request_output_dir / "videos_with_audio"
+                    videos_with_audio_dir.mkdir(exist_ok=True)
+                    
+                    videos_with_audio = []
+                    
+                    for video_info in video_files:
+                        # Find matching audio
+                        matching_audio = None
+                        for audio_result in audio_results:
+                            if (audio_result['section'] == video_info['section'] and 
+                                audio_result['frame_name'] == video_info['frame']):
+                                matching_audio = audio_result
+                                break
+                        
+                        if matching_audio:
+                            output_with_audio = videos_with_audio_dir / f"{video_info['class_name']}_with_audio.mp4"
+                            success, error = combine_video_with_audio(
+                                video_info['video_path'],
+                                matching_audio['audio_path'],
+                                output_with_audio,
+                                audio_timing='auto'
+                            )
+                            
+                            if success:
+                                videos_with_audio.append(str(output_with_audio))
+                                status_messages.append(f"✅ Combined audio: {video_info['class_name']}")
+                            else:
+                                status_messages.append(f"⚠️ Audio combination failed for {video_info['class_name']}: {error}")
+                                videos_with_audio.append(video_info['video_path'])
+                        else:
+                            # No audio for this video, use original
+                            videos_with_audio.append(video_info['video_path'])
+                    
+                    # Concatenate all videos
+                    if videos_with_audio:
+                        status_messages.append("\n🎞️ Creating final combined video...")
+                        final_video_path = request_output_dir / "final_video.mp4"
+                        
+                        success, error = concatenate_videos(videos_with_audio, final_video_path)
+                        
+                        if success:
+                            status_messages.append(f"✅ Final video created: output/{request_id}/final_video.mp4")
+                        else:
+                            status_messages.append(f"❌ Video concatenation failed: {error}")
+                            final_video_path = None
+                else:
+                    # No voiceover, just concatenate videos
+                    status_messages.append("\n🎞️ Creating final combined video...")
+                    final_video_path = request_output_dir / "final_video.mp4"
+                    
+                    video_paths = [v['video_path'] for v in video_files]
+                    success, error = concatenate_videos(video_paths, final_video_path)
+                    
+                    if success:
+                        status_messages.append(f"✅ Final video created: output/{request_id}/final_video.mp4")
+                    else:
+                        status_messages.append(f"❌ Video concatenation failed: {error}")
+                        final_video_path = None
 
     final_status = f"Generated {len(audio_results)} audio tracks out of {len(voice_texts)} voice-overs:\n" + "\n".join(status_messages)
 
-    return updated_scenario_json, audio_results, final_status, combined_audio_value, manim_files
+    return updated_scenario_json, audio_results, final_status, combined_audio_value, manim_files, final_video_path
 
 def generate_video_scenario(problem_text):
     """
@@ -761,9 +994,9 @@ def create_gradio_app():
     """
     Creates and returns the Gradio interface for video scenario generation with audio.
     """
-    with gr.Blocks(title="Math Video Scenario Generator with Audio", theme=gr.themes.Soft()) as app:
-        gr.Markdown("# 🎬🎵 Math Video Scenario Generator with Audio")
-        gr.Markdown("Enter a math problem and get a detailed video scenario with keyframes, animations, and generated audio tracks!")
+    with gr.Blocks(title="Math Video Animation Generator", theme=gr.themes.Soft()) as app:
+        gr.Markdown("# 🎬🎵 Math Video Animation Generator")
+        gr.Markdown("Enter a math problem and get a complete animated video with voice-overs!")
         
         with gr.Row():
             with gr.Column(scale=2):
@@ -773,6 +1006,25 @@ def create_gradio_app():
                     lines=3,
                     max_lines=5
                 )
+                
+                with gr.Row():
+                    quality_dropdown = gr.Dropdown(
+                        label="Video Quality",
+                        choices=[
+                            ("Low (480p)", "l"),
+                            ("Medium (720p)", "m"),
+                            ("High (1080p)", "h"),
+                            ("4K (2160p)", "k")
+                        ],
+                        value="m",
+                        interactive=True
+                    )
+                    
+                    generate_voiceover_checkbox = gr.Checkbox(
+                        label="Generate Voice-over",
+                        value=True,
+                        interactive=True
+                    )
 
                 gap_keyframe_slider = gr.Slider(
                     label="Gap between keyframes (seconds)",
@@ -790,21 +1042,27 @@ def create_gradio_app():
                     step=0.1
                 )
 
-                generate_audio_btn = gr.Button("generate", variant="primary", size="lg")
+                generate_audio_btn = gr.Button("Generate Video", variant="primary", size="lg")
 
             with gr.Column(scale=3):
+                final_video_player = gr.Video(
+                    label="Final Video",
+                    interactive=False,
+                    visible=False
+                )
+                
                 scenario_output = gr.Textbox(
                     label="Video Scenario with Keyframes",
-                    lines=15,
-                    max_lines=25,
+                    lines=10,
+                    max_lines=15,
                     interactive=False,
                     show_copy_button=True
                 )
 
                 audio_status = gr.Textbox(
-                    label="Audio Generation Status",
-                    lines=3,
-                    max_lines=10,
+                    label="Generation Status",
+                    lines=5,
+                    max_lines=15,
                     interactive=False,
                     visible=False
                 )
@@ -830,26 +1088,29 @@ def create_gradio_app():
             cache_examples=False
         )
         
-        def handle_audio_generation_ui(problem_text, gap_keyframe, gap_section):
+        def handle_video_generation_ui(problem_text, quality, generate_voiceover, gap_keyframe, gap_section):
             """Handle scenario generation with audio and Manim scripts for UI."""
-            scenario_text, audio_results, status, combined_audio_value, manim_files = generate_scenario_with_audio_and_manim(
+            scenario_text, audio_results, status, combined_audio_value, manim_files, final_video_path = generate_scenario_with_audio_and_manim(
                 problem_text,
                 gap_keyframe_seconds=gap_keyframe,
                 gap_section_seconds=gap_section,
-                generate_manim=True
+                generate_manim=True,
+                generate_voiceover=generate_voiceover,
+                quality=quality
             )
 
             return [
+                gr.update(value=str(final_video_path) if final_video_path else None, visible=final_video_path is not None),
                 scenario_text,
                 gr.update(value=status, visible=bool(status)),
-                gr.update(value=combined_audio_value, visible=combined_audio_value is not None)
+                gr.update(value=combined_audio_value, visible=combined_audio_value is not None and generate_voiceover)
             ]
         
         # Event handlers
         generate_audio_btn.click(
-            fn=handle_audio_generation_ui,
-            inputs=[problem_input, gap_keyframe_slider, gap_section_slider],
-            outputs=[scenario_output, audio_status, combined_audio_player],
+            fn=handle_video_generation_ui,
+            inputs=[problem_input, quality_dropdown, generate_voiceover_checkbox, gap_keyframe_slider, gap_section_slider],
+            outputs=[final_video_player, scenario_output, audio_status, combined_audio_player],
             show_progress=True
         )
     
