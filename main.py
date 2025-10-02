@@ -58,9 +58,12 @@ def sanitize_class_name(text):
     return ''.join(word.capitalize() for word in cleaned.split('_'))
 
 
-def generate_manim_scene(section_name, keyframe_name, animation_prompt, voice_over_duration):
+def generate_manim_scene(section_name, keyframe_name, animation_prompt, voice_over_duration, turbo_mode=False):
     """
     Use OpenRouter API to generate a Manim scene Python script for a keyframe.
+    
+    Args:
+        turbo_mode: If True, uses Claude Sonnet 4.5 for best quality
     """
     api_key = os.getenv("OPENROUTER_API_KEY")
     
@@ -94,8 +97,11 @@ def generate_manim_scene(section_name, keyframe_name, animation_prompt, voice_ov
         "X-Title": "Manim Scene Generator"
     }
     
+    # Select model based on turbo mode
+    model = "anthropic/claude-sonnet-4.5" if turbo_mode else "openai/gpt-4o"
+    
     data = {
-        "model": "openai/gpt-4o",  # Use GPT-4 for better code generation
+        "model": model,
         "messages": [
             {
                 "role": "user",
@@ -545,26 +551,37 @@ def initialize_tts_client():
         print(f"Error initializing TTS client: {e}")
         return None
 
-def generate_audio_from_text(text, filename_prefix, output_dir, client=None):
+def generate_audio_from_text(text, filename_prefix, output_dir, client=None, turbo_mode=False):
     """
     Generate audio from text using Google Cloud Text-to-Speech API.
-    Uses Studio Q voice as primary, with fallback to standard voices.
+    
+    Args:
+        turbo_mode: If True, uses Gemini 2.5 Pro TTS (Achernar voice) for best quality
     """
     if client is None:
         client = initialize_tts_client()
         if client is None:
-            return None, "Failed to initialize TTS client"
+            return None, "Failed to initialize TTS client", None, None
     
     try:
         # Create synthesis input
         synthesis_input = texttospeech.SynthesisInput(text=text)
         
-        # Use reliable standard voice
-        voice = texttospeech.VoiceSelectionParams(
-            language_code="en-US",
-            name="en-US-Standard-J",  # Standard male voice - reliable and clear
-            ssml_gender=texttospeech.SsmlVoiceGender.MALE
-        )
+        # Select voice based on turbo mode
+        if turbo_mode:
+            # Premium Gemini 2.5 Pro TTS voice (female, high quality)
+            voice = texttospeech.VoiceSelectionParams(
+                language_code="en-US",
+                name="Achernar",
+                model_name="gemini-2.5-pro-tts"
+            )
+        else:
+            # Standard voice (male, reliable)
+            voice = texttospeech.VoiceSelectionParams(
+                language_code="en-US",
+                name="en-US-Standard-J",
+                ssml_gender=texttospeech.SsmlVoiceGender.FEMALE
+            )
         
         # Configure audio format (16-bit PCM for easy processing)
         audio_config = texttospeech.AudioConfig(
@@ -656,7 +673,8 @@ def generate_scenario_with_audio_and_manim(
     gap_section_seconds=1.0, 
     generate_manim=True,
     generate_voiceover=True,
-    quality='m'
+    quality='m',
+    turbo_mode=False
 ):
     """
     Generate a video scenario, create audio tracks, and generate Manim animation scripts.
@@ -668,6 +686,7 @@ def generate_scenario_with_audio_and_manim(
         generate_manim: Whether to generate Manim animations
         generate_voiceover: Whether to generate voice-over audio
         quality: Video quality ('l'=480p, 'm'=720p, 'h'=1080p, 'k'=4K)
+        turbo_mode: If True, uses premium models (Claude Sonnet 4.5 + Gemini TTS)
     """
     # Create unified output directory structure
     request_id = hashlib.md5((problem_text + str(os.urandom(8))).encode()).hexdigest()[:12]
@@ -676,7 +695,7 @@ def generate_scenario_with_audio_and_manim(
     request_output_dir.mkdir(parents=True, exist_ok=True)
     
     # First generate the scenario
-    scenario_text = generate_video_scenario(problem_text)
+    scenario_text = generate_video_scenario(problem_text, turbo_mode=turbo_mode)
     
     if scenario_text.startswith("Error"):
         return scenario_text, [], "Failed to generate scenario", None, [], None
@@ -706,12 +725,16 @@ def generate_scenario_with_audio_and_manim(
     if not generate_voiceover:
         status_messages.append("🔇 Voice-over generation disabled\n")
     else:
+        if turbo_mode:
+            status_messages.append("🚀 Turbo mode enabled: Using Gemini 2.5 Pro TTS (Achernar voice)\n")
+        
         for voice_data in voice_texts:
             audio_path, message, duration_seconds, audio_bytes = generate_audio_from_text(
                 voice_data['text'], 
                 voice_data['filename_prefix'],
                 request_output_dir,
-                tts_client
+                tts_client,
+                turbo_mode=turbo_mode
             )
             
             if audio_path:
@@ -773,6 +796,8 @@ def generate_scenario_with_audio_and_manim(
     # Generate Manim scene files if requested
     manim_files = []
     if generate_manim and scenario_data:
+        if turbo_mode:
+            status_messages.append("\n🚀 Turbo mode enabled: Using Claude Sonnet 4.5 for animations")
         status_messages.append("\n🎬 Generating Manim animation scripts...")
         
         manim_dir = request_output_dir / "manim_scenes"
@@ -801,7 +826,8 @@ def generate_scenario_with_audio_and_manim(
                     section_name,
                     frame_name,
                     animation_prompt,
-                    duration_seconds
+                    duration_seconds,
+                    turbo_mode=turbo_mode
                 )
                 
                 if error:
@@ -929,9 +955,12 @@ def generate_scenario_with_audio_and_manim(
 
     return updated_scenario_json, audio_results, final_status, combined_audio_value, manim_files, final_video_path
 
-def generate_video_scenario(problem_text):
+def generate_video_scenario(problem_text, turbo_mode=False):
     """
     Uses OpenRouter API to generate a video scenario for a math problem.
+    
+    Args:
+        turbo_mode: If True, uses Claude Sonnet 4.5 for best quality
     """
     api_key = os.getenv("OPENROUTER_API_KEY")
     
@@ -956,9 +985,12 @@ def generate_video_scenario(problem_text):
         "X-Title": "Math Video Scenario Generator"
     }
     
-    # Using GPT-3.5-turbo for better structured output
+    # Select model based on turbo mode
+    model = "anthropic/claude-sonnet-4.5" if turbo_mode else "openai/gpt-3.5-turbo"
+    
+    # Using GPT-3.5-turbo or Claude Sonnet 4.5 for structured output
     data = {
-        "model": "openai/gpt-3.5-turbo",
+        "model": model,
         "messages": [
             {
                 "role": "user", 
@@ -1025,6 +1057,14 @@ def create_gradio_app():
                         value=True,
                         interactive=True
                     )
+                
+                with gr.Row():
+                    turbo_mode_checkbox = gr.Checkbox(
+                        label="🚀 Turbo Mode (Premium Models)",
+                        value=False,
+                        interactive=True,
+                        info="Uses Claude Sonnet 4.5 for scripts + Gemini 2.5 Pro TTS (Achernar voice)"
+                    )
 
                 gap_keyframe_slider = gr.Slider(
                     label="Gap between keyframes (seconds)",
@@ -1088,7 +1128,7 @@ def create_gradio_app():
             cache_examples=False
         )
         
-        def handle_video_generation_ui(problem_text, quality, generate_voiceover, gap_keyframe, gap_section):
+        def handle_video_generation_ui(problem_text, quality, generate_voiceover, turbo_mode, gap_keyframe, gap_section):
             """Handle scenario generation with audio and Manim scripts for UI."""
             scenario_text, audio_results, status, combined_audio_value, manim_files, final_video_path = generate_scenario_with_audio_and_manim(
                 problem_text,
@@ -1096,7 +1136,8 @@ def create_gradio_app():
                 gap_section_seconds=gap_section,
                 generate_manim=True,
                 generate_voiceover=generate_voiceover,
-                quality=quality
+                quality=quality,
+                turbo_mode=turbo_mode
             )
 
             return [
@@ -1109,7 +1150,7 @@ def create_gradio_app():
         # Event handlers
         generate_audio_btn.click(
             fn=handle_video_generation_ui,
-            inputs=[problem_input, quality_dropdown, generate_voiceover_checkbox, gap_keyframe_slider, gap_section_slider],
+            inputs=[problem_input, quality_dropdown, generate_voiceover_checkbox, turbo_mode_checkbox, gap_keyframe_slider, gap_section_slider],
             outputs=[final_video_player, scenario_output, audio_status, combined_audio_player],
             show_progress=True
         )
