@@ -13,6 +13,7 @@ import re
 import vertexai
 from vertexai.generative_models import GenerativeModel, GenerationConfig
 import time
+import requests
 
 PCM_SAMPLE_WIDTH = 2  # bytes (16-bit)
 PCM_CHANNELS = 1
@@ -76,20 +77,25 @@ def sanitize_class_name(text):
     return ''.join(word.capitalize() for word in cleaned.split('_'))
 
 
-def generate_manim_scene(section_name, keyframe_name, animation_prompt, voice_over_duration, llm_model="gemini-2.5-flash"):
+def generate_manim_scene(section_name, keyframe_name, animation_prompt, voice_over_duration, llm_model="gemini-2.5-flash", previous_scene_code=None):
     """
-    Use Vertex AI Gemini API to generate a Manim scene Python script for a keyframe.
+    Use Vertex AI or OpenRouter to generate a Manim scene Python script for a keyframe.
     
     Args:
         section_name: Name of the section
         keyframe_name: Name of the keyframe
         animation_prompt: Prompt for the animation
         voice_over_duration: Duration of voice-over in seconds
-        llm_model: Gemini model to use (gemini-2.5-flash-lite, gemini-2.5-flash, gemini-2.5-pro)
+        llm_model: Model to use (gemini-2.5-flash-lite, gemini-2.5-flash, gemini-2.5-pro, or openrouter models)
+        previous_scene_code: Code from the previous scene for context continuity
     """
-    # Initialize Vertex AI
-    if not initialize_vertex_ai():
-        return None, "Error: Failed to initialize Vertex AI"
+    # Determine if using OpenRouter or Vertex AI
+    use_openrouter = llm_model.startswith("openrouter/")
+    
+    if not use_openrouter:
+        # Initialize Vertex AI
+        if not initialize_vertex_ai():
+            return None, "Error: Failed to initialize Vertex AI"
     
     # Load Manim prompt template
     prompt_template = load_prompt_template("manim_scene")
@@ -108,24 +114,68 @@ def generate_manim_scene(section_name, keyframe_name, animation_prompt, voice_ov
     formatted_prompt = formatted_prompt.replace("{animation_prompt}", animation_prompt)
     formatted_prompt = formatted_prompt.replace("{class_name}", class_name)
     
-    # Add instruction for structured output
-    formatted_prompt += "\n\nIMPORTANT: Return ONLY the Python code, without markdown code blocks or any additional text."
+    # Add previous scene context if available
+    if previous_scene_code:
+        formatted_prompt += f"\n\nPREVIOUS SCENE CODE (for continuity):\n```python\n{previous_scene_code}\n```\n\nUse this as reference for visual consistency, but create a NEW scene with the class name {class_name}."
+    
+    # Add frame boundary constraints
+    formatted_prompt += "\n\nIMPORTANT CONSTRAINTS:\n"
+    formatted_prompt += "1. Keep ALL text and objects within frame boundaries: use config.frame_width and config.frame_height\n"
+    formatted_prompt += "2. Recommended safe zone: x between -5 and 5, y between -3 and 3\n"
+    formatted_prompt += "3. Use .scale() to ensure objects fit within frame\n"
+    formatted_prompt += "4. Use .move_to() with coordinates that stay within boundaries\n"
+    formatted_prompt += "5. Return ONLY the Python code, without markdown code blocks or any additional text."
     
     try:
-        # Initialize Vertex AI Gemini model with text output (not JSON for code)
-        model = GenerativeModel(llm_model)
-        
-        # Generate content
-        response = model.generate_content(
-            formatted_prompt,
-            generation_config=GenerationConfig(
-                temperature=0.7,
-                max_output_tokens=8192,
-                response_mime_type="text/plain"
+        if use_openrouter:
+            # Use OpenRouter API
+            api_key = os.getenv("OPENROUTER_API_KEY")
+            if not api_key:
+                return None, "Error: OPENROUTER_API_KEY not found"
+            
+            # Extract model name (remove "openrouter/" prefix)
+            model_name = llm_model.replace("openrouter/", "")
+            
+            url = "https://openrouter.ai/api/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://localhost:7865",
+                "X-Title": "Alfa Video Generator"
+            }
+            
+            data = {
+                "model": model_name,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": formatted_prompt
+                    }
+                ],
+                "temperature": 0.7,
+                "max_tokens": 8192
+            }
+            
+            response = requests.post(url, headers=headers, json=data, timeout=120)
+            response.raise_for_status()
+            
+            result = response.json()
+            code = result['choices'][0]['message']['content']
+            
+        else:
+            # Use Vertex AI Gemini
+            model = GenerativeModel(llm_model)
+            
+            response = model.generate_content(
+                formatted_prompt,
+                generation_config=GenerationConfig(
+                    temperature=0.7,
+                    max_output_tokens=8192,
+                    response_mime_type="text/plain"
+                )
             )
-        )
-        
-        code = response.text
+            
+            code = response.text
         
         # Extract Python code from markdown if present (fallback safety)
         code_match = re.search(r'```python\s*(.*?)\s*```', code, re.DOTALL)
@@ -135,7 +185,7 @@ def generate_manim_scene(section_name, keyframe_name, animation_prompt, voice_ov
         return code, None
         
     except Exception as e:
-        return None, f"Error generating Manim code with Vertex AI: {str(e)}"
+        return None, f"Error generating Manim code: {str(e)}"
 
 
 def pcm_bytes_to_numpy(audio_bytes, sample_width=PCM_SAMPLE_WIDTH):
@@ -829,14 +879,19 @@ def generate_scenario_with_audio_and_manim(
     if scenario_file_message:
         status_messages.append(scenario_file_message)
 
-    # Generate Manim scene files if requested
+    # Generate and render Manim scenes if requested (one at a time)
     manim_files = []
+    video_files = []
     if generate_manim and scenario_data:
         status_messages.append(f"\n🤖 Using LLM model: {llm_model}")
-        status_messages.append("\n🎬 Generating Manim animation scripts...")
+        status_messages.append("\n🎬 Generating and rendering Manim animations (one at a time)...")
         
         manim_dir = request_output_dir / "manim_scenes"
         manim_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Track previous scene code for context continuity
+        previous_scene_code = None
+        scene_index = 0
         
         for section in scenario_data.get('sections', []):
             section_name = section.get('section_name', 'Unknown Section')
@@ -856,25 +911,59 @@ def generate_scenario_with_audio_and_manim(
                 except (ValueError, IndexError):
                     duration_seconds = 5  # Default fallback
                 
-                # Generate Manim code
+                safe_filename = sanitize_class_name(f"{section_name}_{frame_name}")
+                
+                # ============================================================
+                # STEP 1: Generate Manim code with previous scene context
+                # ============================================================
+                status_messages.append(f"\n🔨 [{scene_index + 1}] Generating: {safe_filename}...")
+                
                 manim_code, error = generate_manim_scene(
                     section_name,
                     frame_name,
                     animation_prompt,
                     duration_seconds,
-                    llm_model=llm_model
+                    llm_model=llm_model,
+                    previous_scene_code=previous_scene_code
                 )
                 
                 if error:
-                    status_messages.append(f"⚠️ Manim generation failed for {frame_name}: {error}")
+                    status_messages.append(f"❌ Generation failed: {error}")
                     continue
                 
                 # Save to file
-                safe_filename = sanitize_class_name(f"{section_name}_{frame_name}")
                 manim_file_path = manim_dir / f"{safe_filename}.py"
                 
                 try:
                     manim_file_path.write_text(manim_code, encoding='utf-8')
+                    status_messages.append(f"✅ Script saved: {safe_filename}.py")
+                except Exception as write_error:
+                    status_messages.append(f"❌ Failed to save script: {write_error}")
+                    continue
+                
+                # ============================================================
+                # STEP 2: Immediately render the scene
+                # ============================================================
+                status_messages.append(f"⏳ Rendering: {safe_filename}...")
+                
+                video_path, render_error = render_manim_scene(
+                    str(manim_file_path),
+                    safe_filename,
+                    request_output_dir,
+                    quality=quality
+                )
+                
+                if render_error:
+                    status_messages.append(f"❌ Render failed: {render_error}")
+                    # Don't use failed scene as context
+                else:
+                    status_messages.append(f"✅ Rendered successfully: {safe_filename}.mp4")
+                    
+                    # ============================================================
+                    # STEP 3: Store successful scene for context and tracking
+                    # ============================================================
+                    previous_scene_code = manim_code
+                    
                     manim_files.append({
                         'section': section_name,
                         'frame': frame_name,
@@ -882,42 +971,19 @@ def generate_scenario_with_audio_and_manim(
                         'class_name': safe_filename,
                         'duration': duration_seconds
                     })
-                    status_messages.append(f"✅ Manim script: {safe_filename}.py")
-                except Exception as write_error:
-                    status_messages.append(f"⚠️ Failed to save {safe_filename}.py: {write_error}")
-        
-        if manim_files:
-            status_messages.append(f"\n🎉 Generated {len(manim_files)} Manim scene files in output/{request_id}/manim_scenes/")
-            
-            # Render Manim scenes to video
-            status_messages.append("\n🎥 Rendering animations to video...")
-            video_files = []
-            
-            for idx, manim_info in enumerate(manim_files):
-                script_path = manim_info['path']
-                class_name = manim_info['class_name']
-                
-                status_messages.append(f"⏳ Rendering {class_name}...")
-                
-                video_path, render_error = render_manim_scene(
-                    script_path,
-                    class_name,
-                    request_output_dir,
-                    quality=quality
-                )
-                
-                if render_error:
-                    status_messages.append(f"❌ Render failed for {class_name}: {render_error}")
-                else:
-                    video_info = {
-                        'section': manim_info['section'],
-                        'frame': manim_info['frame'],
+                    
+                    video_files.append({
+                        'section': section_name,
+                        'frame': frame_name,
                         'video_path': video_path,
-                        'class_name': class_name,
-                        'index': idx
-                    }
-                    video_files.append(video_info)
-                    status_messages.append(f"✅ Video rendered: {class_name}.mp4")
+                        'class_name': safe_filename,
+                        'index': scene_index
+                    })
+                
+                scene_index += 1
+        
+        if video_files:
+            status_messages.append(f"\n🎉 Successfully generated and rendered {len(video_files)} scenes in output/{request_id}/")
             
             if video_files:
                 status_messages.append(f"\n🎬 Rendered {len(video_files)} videos in output/{request_id}/videos/")
@@ -992,15 +1058,19 @@ def generate_scenario_with_audio_and_manim(
 
 def generate_video_scenario(problem_text, llm_model="gemini-2.5-flash"):
     """
-    Uses Vertex AI Gemini API to generate a video scenario for a math problem.
+    Uses Vertex AI or OpenRouter to generate a video scenario for a math problem.
     
     Args:
         problem_text: The math problem to solve
-        llm_model: Gemini model to use (gemini-2.5-flash-lite, gemini-2.5-flash, gemini-2.5-pro)
+        llm_model: Model to use (gemini-2.5-flash-lite, gemini-2.5-flash, gemini-2.5-pro, or openrouter models)
     """
-    # Initialize Vertex AI
-    if not initialize_vertex_ai():
-        return "Error: Failed to initialize Vertex AI"
+    # Determine if using OpenRouter or Vertex AI
+    use_openrouter = llm_model.startswith("openrouter/")
+    
+    if not use_openrouter:
+        # Initialize Vertex AI
+        if not initialize_vertex_ai():
+            return "Error: Failed to initialize Vertex AI"
     
     # Load the appropriate prompt template
     prompt_template = load_prompt_template("video_scenario")
@@ -1014,23 +1084,66 @@ def generate_video_scenario(problem_text, llm_model="gemini-2.5-flash"):
     formatted_prompt += "\n\nIMPORTANT: Return ONLY valid JSON without any markdown code blocks. Ensure all JSON syntax is correct with proper commas and quotes."
     
     try:
-        # Initialize Vertex AI Gemini model with JSON mode
-        model = GenerativeModel(llm_model)
-        
-        # Generate content with JSON output
-        response = model.generate_content(
-            formatted_prompt,
-            generation_config=GenerationConfig(
-                temperature=0.7,
-                max_output_tokens=8192,
-                response_mime_type="application/json"
+        if use_openrouter:
+            # Use OpenRouter API
+            api_key = os.getenv("OPENROUTER_API_KEY")
+            if not api_key:
+                return "Error: OPENROUTER_API_KEY not found"
+            
+            # Extract model name (remove "openrouter/" prefix)
+            model_name = llm_model.replace("openrouter/", "")
+            
+            url = "https://openrouter.ai/api/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://localhost:7865",
+                "X-Title": "Alfa Video Generator"
+            }
+            
+            data = {
+                "model": model_name,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": formatted_prompt
+                    }
+                ],
+                "temperature": 0.7,
+                "max_tokens": 8192
+            }
+            
+            response = requests.post(url, headers=headers, json=data, timeout=120)
+            response.raise_for_status()
+            
+            result = response.json()
+            content = result['choices'][0]['message']['content']
+            
+            # Extract JSON from markdown if present
+            json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+            if json_match:
+                content = json_match.group(1)
+            
+            return content
+            
+        else:
+            # Use Vertex AI Gemini model with JSON mode
+            model = GenerativeModel(llm_model)
+            
+            # Generate content with JSON output
+            response = model.generate_content(
+                formatted_prompt,
+                generation_config=GenerationConfig(
+                    temperature=0.7,
+                    max_output_tokens=8192,
+                    response_mime_type="application/json"
+                )
             )
-        )
-        
-        return response.text
+            
+            return response.text
         
     except Exception as e:
-        return f"Error generating scenario with Vertex AI: {str(e)}"
+        return f"Error generating scenario: {str(e)}"
 
 def create_gradio_app():
     """
@@ -1070,11 +1183,18 @@ def create_gradio_app():
                 
                 with gr.Row():
                     llm_model_dropdown = gr.Dropdown(
-                        label="🤖 LLM Model (Vertex AI)",
+                        label="🤖 LLM Model",
                         choices=[
-                            ("Gemini 2.5 Flash Lite", "gemini-2.5-flash-lite"),
-                            ("Gemini 2.5 Flash", "gemini-2.5-flash"),
-                            ("Gemini 2.5 Pro", "gemini-2.5-pro")
+                            ("Gemini 2.5 Flash Lite (Vertex AI)", "gemini-2.5-flash-lite"),
+                            ("Gemini 2.5 Flash (Vertex AI)", "gemini-2.5-flash"),
+                            ("Gemini 2.5 Pro (Vertex AI)", "gemini-2.5-pro"),
+                            ("──────────", None),
+                            ("GPT-4o (OpenRouter)", "openrouter/openai/gpt-4o"),
+                            ("GPT-4o Mini (OpenRouter)", "openrouter/openai/gpt-4o-mini"),
+                            ("Claude 3.5 Sonnet (OpenRouter)", "openrouter/anthropic/claude-3.5-sonnet"),
+                            ("Claude 3 Opus (OpenRouter)", "openrouter/anthropic/claude-3-opus"),
+                            ("Gemini Pro 1.5 (OpenRouter)", "openrouter/google/gemini-pro-1.5"),
+                            ("DeepSeek Chat (OpenRouter)", "openrouter/deepseek/deepseek-chat")
                         ],
                         value="gemini-2.5-flash",
                         interactive=True,
