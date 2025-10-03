@@ -12,4 +12,5 @@ dependencies = [
     "google-auth>=2.0.0",
     "numpy>=1.26.0",
     "manim>=0.19.0",
+    "google-cloud-aiplatform>=1.118.0",
 ]

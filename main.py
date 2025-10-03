@@ -2,7 +2,6 @@ import os
 import json
 import wave
 import subprocess
-import requests
 import gradio as gr
 from dotenv import load_dotenv
 from pathlib import Path
@@ -11,6 +10,9 @@ from google.oauth2 import service_account
 import numpy as np
 import hashlib
 import re
+import vertexai
+from vertexai.generative_models import GenerativeModel, GenerationConfig
+import time
 
 PCM_SAMPLE_WIDTH = 2  # bytes (16-bit)
 PCM_CHANNELS = 1
@@ -18,6 +20,22 @@ PCM_SAMPLE_RATE = 24000
 
 # Load environment variables
 load_dotenv()
+
+def initialize_vertex_ai():
+    """
+    Initialize Vertex AI with credentials from service account.
+    """
+    credentials_path = Path(__file__).parent / ".credentials" / "alfa_gcp_sa.json"
+    project_id = os.getenv("GCP_PROJECT_ID", "alfa-473522")  # Default project ID
+    location = os.getenv("GCP_LOCATION", "us-central1")  # Default location
+    
+    try:
+        credentials = service_account.Credentials.from_service_account_file(str(credentials_path))
+        vertexai.init(project=project_id, location=location, credentials=credentials)
+        return True
+    except Exception as e:
+        print(f"Error initializing Vertex AI: {e}")
+        return False
 
 def load_prompt_template(template_name):
     """
@@ -58,17 +76,20 @@ def sanitize_class_name(text):
     return ''.join(word.capitalize() for word in cleaned.split('_'))
 
 
-def generate_manim_scene(section_name, keyframe_name, animation_prompt, voice_over_duration, turbo_mode=False):
+def generate_manim_scene(section_name, keyframe_name, animation_prompt, voice_over_duration, llm_model="gemini-2.5-flash"):
     """
-    Use OpenRouter API to generate a Manim scene Python script for a keyframe.
+    Use Vertex AI Gemini API to generate a Manim scene Python script for a keyframe.
     
     Args:
-        turbo_mode: If True, uses Claude Sonnet 4.5 for best quality
+        section_name: Name of the section
+        keyframe_name: Name of the keyframe
+        animation_prompt: Prompt for the animation
+        voice_over_duration: Duration of voice-over in seconds
+        llm_model: Gemini model to use (gemini-2.5-flash-lite, gemini-2.5-flash, gemini-2.5-pro)
     """
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    
-    if not api_key:
-        return None, "Error: OPENROUTER_API_KEY not found"
+    # Initialize Vertex AI
+    if not initialize_vertex_ai():
+        return None, "Error: Failed to initialize Vertex AI"
     
     # Load Manim prompt template
     prompt_template = load_prompt_template("manim_scene")
@@ -87,39 +108,26 @@ def generate_manim_scene(section_name, keyframe_name, animation_prompt, voice_ov
     formatted_prompt = formatted_prompt.replace("{animation_prompt}", animation_prompt)
     formatted_prompt = formatted_prompt.replace("{class_name}", class_name)
     
-    # OpenRouter API call
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://localhost:7865",
-        "X-Title": "Manim Scene Generator"
-    }
-    
-    # Select model based on turbo mode
-    model = "anthropic/claude-sonnet-4.5" if turbo_mode else "openai/gpt-4o"
-    
-    data = {
-        "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": formatted_prompt
-            }
-        ],
-        "temperature": 0.7,
-        "max_tokens": 3000
-    }
+    # Add instruction for structured output
+    formatted_prompt += "\n\nIMPORTANT: Return ONLY the Python code, without markdown code blocks or any additional text."
     
     try:
-        response = requests.post(url, headers=headers, json=data)
-        response.raise_for_status()
+        # Initialize Vertex AI Gemini model with text output (not JSON for code)
+        model = GenerativeModel(llm_model)
         
-        result = response.json()
-        code = result['choices'][0]['message']['content']
+        # Generate content
+        response = model.generate_content(
+            formatted_prompt,
+            generation_config=GenerationConfig(
+                temperature=0.7,
+                max_output_tokens=8192,
+                response_mime_type="text/plain"
+            )
+        )
         
-        # Extract Python code from markdown if present
+        code = response.text
+        
+        # Extract Python code from markdown if present (fallback safety)
         code_match = re.search(r'```python\s*(.*?)\s*```', code, re.DOTALL)
         if code_match:
             code = code_match.group(1)
@@ -127,7 +135,7 @@ def generate_manim_scene(section_name, keyframe_name, animation_prompt, voice_ov
         return code, None
         
     except Exception as e:
-        return None, f"Error generating Manim code: {str(e)}"
+        return None, f"Error generating Manim code with Vertex AI: {str(e)}"
 
 
 def pcm_bytes_to_numpy(audio_bytes, sample_width=PCM_SAMPLE_WIDTH):
@@ -551,79 +559,102 @@ def initialize_tts_client():
         print(f"Error initializing TTS client: {e}")
         return None
 
-def generate_audio_from_text(text, filename_prefix, output_dir, client=None, turbo_mode=False):
+def generate_audio_from_text(text, filename_prefix, output_dir, client=None, tts_model="gemini-2.5-flash-tts", max_retries=3):
     """
-    Generate audio from text using Google Cloud Text-to-Speech API.
+    Generate audio from text using Google Cloud Text-to-Speech API with Gemini models.
     
     Args:
-        turbo_mode: If True, uses Gemini 2.5 Pro TTS (Achernar voice) for best quality
+        text: Text to convert to speech
+        filename_prefix: Prefix for the output audio file
+        output_dir: Directory to save the audio file
+        client: TTS client (optional, will initialize if not provided)
+        tts_model: TTS model to use (gemini-2.5-flash-tts or gemini-2.5-pro-tts)
+        max_retries: Maximum number of retries for quota errors
     """
     if client is None:
         client = initialize_tts_client()
         if client is None:
             return None, "Failed to initialize TTS client", None, None
     
-    try:
-        # Create synthesis input
-        synthesis_input = texttospeech.SynthesisInput(text=text)
-        
-        # Select voice based on turbo mode
-        if turbo_mode:
-            # Premium Gemini 2.5 Pro TTS voice (female, high quality)
-            voice = texttospeech.VoiceSelectionParams(
-                language_code="en-US",
-                name="Achernar",
-                model_name="gemini-2.5-pro-tts"
+    # Retry loop for quota errors
+    for attempt in range(max_retries):
+        try:
+            # Create synthesis input
+            synthesis_input = texttospeech.SynthesisInput(text=text)
+            
+            # Select voice model based on tts_model parameter
+            # Map tts_model to voice name and model
+            if tts_model == "gemini-2.5-pro-tts":
+                # Gemini 2.5 Pro TTS (higher quality)
+                voice = texttospeech.VoiceSelectionParams(
+                    language_code="en-US",
+                    name="Achernar",
+                    model_name="gemini-2.5-pro-tts"
+                )
+            else:  # gemini-2.5-flash-tts (default)
+                # Gemini 2.5 Flash TTS (faster, good quality)
+                voice = texttospeech.VoiceSelectionParams(
+                    language_code="en-US",
+                    name="Aoede",
+                    model_name="gemini-2.5-flash-tts"
+                )
+            
+            # Configure audio format (16-bit PCM for easy processing)
+            audio_config = texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.LINEAR16,
+                speaking_rate=1.0,
+                pitch=0.0,
+                volume_gain_db=0.0,
+                sample_rate_hertz=PCM_SAMPLE_RATE
             )
-        else:
-            # Standard voice (male, reliable)
-            voice = texttospeech.VoiceSelectionParams(
-                language_code="en-US",
-                name="en-US-Standard-J",
-                ssml_gender=texttospeech.SsmlVoiceGender.FEMALE
+            
+            # Generate speech
+            response = client.synthesize_speech(
+                input=synthesis_input,
+                voice=voice,
+                audio_config=audio_config
             )
-        
-        # Configure audio format (16-bit PCM for easy processing)
-        audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.LINEAR16,
-            speaking_rate=1.0,
-            pitch=0.0,
-            volume_gain_db=0.0,
-            sample_rate_hertz=PCM_SAMPLE_RATE
-        )
-        
-        # Generate speech
-        response = client.synthesize_speech(
-            input=synthesis_input,
-            voice=voice,
-            audio_config=audio_config
-        )
-        
-        audio_bytes = response.audio_content
+            
+            audio_bytes = response.audio_content
 
-        # Determine duration from PCM bytes
-        bytes_per_second = PCM_SAMPLE_RATE * PCM_SAMPLE_WIDTH
-        duration_seconds = len(audio_bytes) / bytes_per_second if audio_bytes else 0
+            # Determine duration from PCM bytes
+            bytes_per_second = PCM_SAMPLE_RATE * PCM_SAMPLE_WIDTH
+            duration_seconds = len(audio_bytes) / bytes_per_second if audio_bytes else 0
 
-        # Save audio file to request-specific directory
-        audio_dir = output_dir / "audio"
-        audio_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create filename with hash to avoid conflicts
-        text_hash = hashlib.md5(text.encode()).hexdigest()[:8]
-        filename = f"{filename_prefix}_{text_hash}.wav"
-        audio_path = audio_dir / filename
-        
-        with wave.open(str(audio_path), "wb") as wav_file:
-            wav_file.setnchannels(PCM_CHANNELS)
-            wav_file.setsampwidth(PCM_SAMPLE_WIDTH)
-            wav_file.setframerate(PCM_SAMPLE_RATE)
-            wav_file.writeframes(audio_bytes)
-        
-        return str(audio_path), f"Audio generated successfully: {filename}", duration_seconds, audio_bytes
-        
-    except Exception as e:
-        return None, f"Error generating audio: {str(e)}", None, None
+            # Save audio file to request-specific directory
+            audio_dir = output_dir / "audio"
+            audio_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create filename with hash to avoid conflicts
+            text_hash = hashlib.md5(text.encode()).hexdigest()[:8]
+            filename = f"{filename_prefix}_{text_hash}.wav"
+            audio_path = audio_dir / filename
+            
+            with wave.open(str(audio_path), "wb") as wav_file:
+                wav_file.setnchannels(PCM_CHANNELS)
+                wav_file.setsampwidth(PCM_SAMPLE_WIDTH)
+                wav_file.setframerate(PCM_SAMPLE_RATE)
+                wav_file.writeframes(audio_bytes)
+            
+            return str(audio_path), f"Audio generated successfully: {filename}", duration_seconds, audio_bytes
+            
+        except Exception as e:
+            error_msg = str(e)
+            
+            # Check if it's a quota error
+            if "429" in error_msg or "Quota exceeded" in error_msg:
+                if attempt < max_retries - 1:
+                    # Wait exponentially longer with each retry
+                    wait_time = 3 * (2 ** attempt)  # 3s, 6s, 12s
+                    time.sleep(wait_time)
+                    continue  # Retry
+                else:
+                    return None, f"Error generating audio (quota exceeded after {max_retries} attempts): {error_msg}", None, None
+            else:
+                # Non-quota error, don't retry
+                return None, f"Error generating audio: {error_msg}", None, None
+    
+    return None, "Error generating audio: Max retries exceeded", None, None
 
 def parse_scenario_json(scenario_text):
     """
@@ -674,7 +705,8 @@ def generate_scenario_with_audio_and_manim(
     generate_manim=True,
     generate_voiceover=True,
     quality='m',
-    turbo_mode=False
+    llm_model="gemini-2.5-flash",
+    tts_model="gemini-2.5-flash-tts"
 ):
     """
     Generate a video scenario, create audio tracks, and generate Manim animation scripts.
@@ -686,7 +718,8 @@ def generate_scenario_with_audio_and_manim(
         generate_manim: Whether to generate Manim animations
         generate_voiceover: Whether to generate voice-over audio
         quality: Video quality ('l'=480p, 'm'=720p, 'h'=1080p, 'k'=4K)
-        turbo_mode: If True, uses premium models (Claude Sonnet 4.5 + Gemini TTS)
+        llm_model: Gemini model for scenario/animation generation
+        tts_model: Gemini TTS model for voice-over generation
     """
     # Create unified output directory structure
     request_id = hashlib.md5((problem_text + str(os.urandom(8))).encode()).hexdigest()[:12]
@@ -695,7 +728,7 @@ def generate_scenario_with_audio_and_manim(
     request_output_dir.mkdir(parents=True, exist_ok=True)
     
     # First generate the scenario
-    scenario_text = generate_video_scenario(problem_text, turbo_mode=turbo_mode)
+    scenario_text = generate_video_scenario(problem_text, llm_model=llm_model)
     
     if scenario_text.startswith("Error"):
         return scenario_text, [], "Failed to generate scenario", None, [], None
@@ -725,16 +758,19 @@ def generate_scenario_with_audio_and_manim(
     if not generate_voiceover:
         status_messages.append("🔇 Voice-over generation disabled\n")
     else:
-        if turbo_mode:
-            status_messages.append("🚀 Turbo mode enabled: Using Gemini 2.5 Pro TTS (Achernar voice)\n")
+        status_messages.append(f"🎙️ Using TTS model: {tts_model}\n")
         
-        for voice_data in voice_texts:
+        for idx, voice_data in enumerate(voice_texts):
+            # Add rate limiting: wait between requests to avoid quota errors
+            if idx > 0:
+                time.sleep(1.5)  # Wait 1.5 seconds between TTS requests
+            
             audio_path, message, duration_seconds, audio_bytes = generate_audio_from_text(
                 voice_data['text'], 
                 voice_data['filename_prefix'],
                 request_output_dir,
                 tts_client,
-                turbo_mode=turbo_mode
+                tts_model=tts_model
             )
             
             if audio_path:
@@ -796,8 +832,7 @@ def generate_scenario_with_audio_and_manim(
     # Generate Manim scene files if requested
     manim_files = []
     if generate_manim and scenario_data:
-        if turbo_mode:
-            status_messages.append("\n🚀 Turbo mode enabled: Using Claude Sonnet 4.5 for animations")
+        status_messages.append(f"\n🤖 Using LLM model: {llm_model}")
         status_messages.append("\n🎬 Generating Manim animation scripts...")
         
         manim_dir = request_output_dir / "manim_scenes"
@@ -827,7 +862,7 @@ def generate_scenario_with_audio_and_manim(
                     frame_name,
                     animation_prompt,
                     duration_seconds,
-                    turbo_mode=turbo_mode
+                    llm_model=llm_model
                 )
                 
                 if error:
@@ -955,17 +990,17 @@ def generate_scenario_with_audio_and_manim(
 
     return updated_scenario_json, audio_results, final_status, combined_audio_value, manim_files, final_video_path
 
-def generate_video_scenario(problem_text, turbo_mode=False):
+def generate_video_scenario(problem_text, llm_model="gemini-2.5-flash"):
     """
-    Uses OpenRouter API to generate a video scenario for a math problem.
+    Uses Vertex AI Gemini API to generate a video scenario for a math problem.
     
     Args:
-        turbo_mode: If True, uses Claude Sonnet 4.5 for best quality
+        problem_text: The math problem to solve
+        llm_model: Gemini model to use (gemini-2.5-flash-lite, gemini-2.5-flash, gemini-2.5-pro)
     """
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    
-    if not api_key:
-        return "Error: OPENROUTER_API_KEY not found in environment variables."
+    # Initialize Vertex AI
+    if not initialize_vertex_ai():
+        return "Error: Failed to initialize Vertex AI"
     
     # Load the appropriate prompt template
     prompt_template = load_prompt_template("video_scenario")
@@ -975,52 +1010,27 @@ def generate_video_scenario(problem_text, turbo_mode=False):
     # Format the prompt with the math problem using replace instead of format
     formatted_prompt = prompt_template.replace("{math_problem}", problem_text)
     
-    # OpenRouter API endpoint  
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://localhost:7863",  # For gradio
-        "X-Title": "Math Video Scenario Generator"
-    }
-    
-    # Select model based on turbo mode
-    model = "anthropic/claude-sonnet-4.5" if turbo_mode else "openai/gpt-3.5-turbo"
-    
-    # Using GPT-3.5-turbo or Claude Sonnet 4.5 for structured output
-    data = {
-        "model": model,
-        "messages": [
-            {
-                "role": "user", 
-                "content": formatted_prompt
-            }
-        ],
-        "temperature": 0.7,
-        "max_tokens": 2000
-    }
+    # Add explicit JSON formatting instruction
+    formatted_prompt += "\n\nIMPORTANT: Return ONLY valid JSON without any markdown code blocks. Ensure all JSON syntax is correct with proper commas and quotes."
     
     try:
-        response = requests.post(url, headers=headers, json=data)
+        # Initialize Vertex AI Gemini model with JSON mode
+        model = GenerativeModel(llm_model)
         
-        # Debug information
-        print(f"Request URL: {url}")
-        print(f"Response Status: {response.status_code}")
-        print(f"Response Headers: {response.headers}")
+        # Generate content with JSON output
+        response = model.generate_content(
+            formatted_prompt,
+            generation_config=GenerationConfig(
+                temperature=0.7,
+                max_output_tokens=8192,
+                response_mime_type="application/json"
+            )
+        )
         
-        response.raise_for_status()
+        return response.text
         
-        result = response.json()
-        scenario = result['choices'][0]['message']['content']
-        return scenario
-        
-    except requests.exceptions.RequestException as e:
-        return f"Error calling OpenRouter API: {str(e)}\nResponse: {response.text if 'response' in locals() else 'No response'}"
-    except KeyError as e:
-        return f"Error parsing API response: {str(e)}\nFull response: {result if 'result' in locals() else 'No result'}"
     except Exception as e:
-        return f"Unexpected error: {str(e)}"
+        return f"Error generating scenario with Vertex AI: {str(e)}"
 
 def create_gradio_app():
     """
@@ -1059,11 +1069,27 @@ def create_gradio_app():
                     )
                 
                 with gr.Row():
-                    turbo_mode_checkbox = gr.Checkbox(
-                        label="🚀 Turbo Mode (Premium Models)",
-                        value=False,
+                    llm_model_dropdown = gr.Dropdown(
+                        label="🤖 LLM Model (Vertex AI)",
+                        choices=[
+                            ("Gemini 2.5 Flash Lite", "gemini-2.5-flash-lite"),
+                            ("Gemini 2.5 Flash", "gemini-2.5-flash"),
+                            ("Gemini 2.5 Pro", "gemini-2.5-pro")
+                        ],
+                        value="gemini-2.5-flash",
                         interactive=True,
-                        info="Uses Claude Sonnet 4.5 for scripts + Gemini 2.5 Pro TTS (Achernar voice)"
+                        info="Model for generating scenarios and animation scripts"
+                    )
+                    
+                    tts_model_dropdown = gr.Dropdown(
+                        label="🎙️ Voice Model (Gemini TTS)",
+                        choices=[
+                            ("Gemini 2.5 Flash", "gemini-2.5-flash-tts"),
+                            ("Gemini 2.5 Pro", "gemini-2.5-pro-tts")
+                        ],
+                        value="gemini-2.5-flash-tts",
+                        interactive=True,
+                        info="Model for voice-over generation"
                     )
 
                 gap_keyframe_slider = gr.Slider(
@@ -1128,7 +1154,7 @@ def create_gradio_app():
             cache_examples=False
         )
         
-        def handle_video_generation_ui(problem_text, quality, generate_voiceover, turbo_mode, gap_keyframe, gap_section):
+        def handle_video_generation_ui(problem_text, quality, generate_voiceover, llm_model, tts_model, gap_keyframe, gap_section):
             """Handle scenario generation with audio and Manim scripts for UI."""
             scenario_text, audio_results, status, combined_audio_value, manim_files, final_video_path = generate_scenario_with_audio_and_manim(
                 problem_text,
@@ -1137,7 +1163,8 @@ def create_gradio_app():
                 generate_manim=True,
                 generate_voiceover=generate_voiceover,
                 quality=quality,
-                turbo_mode=turbo_mode
+                llm_model=llm_model,
+                tts_model=tts_model
             )
 
             return [
@@ -1150,7 +1177,7 @@ def create_gradio_app():
         # Event handlers
         generate_audio_btn.click(
             fn=handle_video_generation_ui,
-            inputs=[problem_input, quality_dropdown, generate_voiceover_checkbox, turbo_mode_checkbox, gap_keyframe_slider, gap_section_slider],
+            inputs=[problem_input, quality_dropdown, generate_voiceover_checkbox, llm_model_dropdown, tts_model_dropdown, gap_keyframe_slider, gap_section_slider],
             outputs=[final_video_player, scenario_output, audio_status, combined_audio_player],
             show_progress=True
         )
