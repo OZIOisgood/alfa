@@ -118,8 +118,19 @@ def generate_manim_scene(section_name, keyframe_name, animation_prompt, voice_ov
     if previous_scene_code:
         formatted_prompt += f"\n\nPREVIOUS SCENE CODE (for continuity):\n```python\n{previous_scene_code}\n```\n\nUse this as reference for visual consistency, but create a NEW scene with the class name {class_name}."
     
+    # Add design consistency constraints
+    formatted_prompt += "\n\nDESIGN CONSISTENCY RULES (CRITICAL - MUST FOLLOW):\n"
+    formatted_prompt += "1. BACKGROUND: Always use BLACK background (self.camera.background_color = BLACK)\n"
+    formatted_prompt += "2. TEXT COLOR: Use WHITE or light colors (YELLOW, CYAN, GREEN) - NEVER dark blue or gray on black background\n"
+    formatted_prompt += "3. MAIN OBJECTS: Use consistent colors throughout:\n"
+    formatted_prompt += "   - Circles/shapes: WHITE or BLUE outline\n"
+    formatted_prompt += "   - Formulas: WHITE or YELLOW text\n"
+    formatted_prompt += "   - Highlights: Use YELLOW, GREEN, or RED (never dark colors)\n"
+    formatted_prompt += "4. If previous scene had specific colors for objects, MAINTAIN those exact colors\n"
+    formatted_prompt += "5. CONTRAST: Ensure high contrast - light objects on dark background\n"
+    
     # Add frame boundary constraints
-    formatted_prompt += "\n\nIMPORTANT CONSTRAINTS:\n"
+    formatted_prompt += "\nFRAME BOUNDARY CONSTRAINTS:\n"
     formatted_prompt += "1. Keep ALL text and objects within frame boundaries: use config.frame_width and config.frame_height\n"
     formatted_prompt += "2. Recommended safe zone: x between -5 and 5, y between -3 and 3\n"
     formatted_prompt += "3. Use .scale() to ensure objects fit within frame\n"
@@ -812,8 +823,9 @@ def generate_scenario_with_audio_and_manim(
         
         for idx, voice_data in enumerate(voice_texts):
             # Add rate limiting: wait between requests to avoid quota errors
+            # 60 req/min = 1 req/sec, so 2.5s delay = 24 req/min (safe margin)
             if idx > 0:
-                time.sleep(1.5)  # Wait 1.5 seconds between TTS requests
+                time.sleep(2.5)  # Wait 2.5 seconds between TTS requests
             
             audio_path, message, duration_seconds, audio_bytes = generate_audio_from_text(
                 voice_data['text'], 
