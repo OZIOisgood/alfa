@@ -235,8 +235,14 @@ def generate_silence(duration_seconds, sample_rate=PCM_SAMPLE_RATE, sample_width
     raise ValueError("Unsupported sample width for silence generation")
 
 
-def apply_fade(samples, sample_rate=PCM_SAMPLE_RATE, fade_duration=0.01):
-    """Apply a short fade-in and fade-out to reduce clicks at boundaries."""
+def apply_fade(samples, sample_rate=PCM_SAMPLE_RATE, fade_duration=0.05):
+    """Apply a short fade-in and fade-out to reduce clicks at boundaries.
+    
+    Args:
+        samples: Audio samples as numpy array
+        sample_rate: Sample rate in Hz
+        fade_duration: Duration of fade in seconds (default: 0.05s = 50ms to prevent clicking)
+    """
     if samples is None or samples.size == 0:
         return samples
 
@@ -767,7 +773,8 @@ def generate_scenario_with_audio_and_manim(
     generate_voiceover=True,
     quality='m',
     llm_model="gemini-2.5-flash",
-    tts_model="gemini-2.5-flash-tts"
+    tts_model="gemini-2.5-flash-tts",
+    sections_limit=10
 ):
     """
     Generate a video scenario, create audio tracks, and generate Manim animation scripts.
@@ -781,6 +788,7 @@ def generate_scenario_with_audio_and_manim(
         quality: Video quality ('l'=480p, 'm'=720p, 'h'=1080p, 'k'=4K)
         llm_model: Gemini model for scenario/animation generation
         tts_model: Gemini TTS model for voice-over generation
+        sections_limit: Maximum number of sections to process
     """
     # Create unified output directory structure
     request_id = hashlib.md5((problem_text + str(os.urandom(8))).encode()).hexdigest()[:12]
@@ -803,80 +811,14 @@ def generate_scenario_with_audio_and_manim(
     if not voice_texts:
         return scenario_text, [], "No voice-over texts found in scenario", None, [], None
     
-    # Initialize TTS client only if generating voiceovers
-    tts_client = None
-    if generate_voiceover:
-        tts_client = initialize_tts_client()
-        if tts_client is None:
-            return scenario_text, [], "Failed to initialize Text-to-Speech client", None, [], None
-    
-    # Generate audio for each voice-over
-    audio_results = []
+    # Status messages initialization
     status_messages = []
-    
     status_messages.append(f"📁 Output directory: output/{request_id}/\n")
     
     if not generate_voiceover:
         status_messages.append("🔇 Voice-over generation disabled\n")
-    else:
-        status_messages.append(f"🎙️ Using TTS model: {tts_model}\n")
-        
-        for idx, voice_data in enumerate(voice_texts):
-            # Add rate limiting: wait between requests to avoid quota errors
-            # 60 req/min = 1 req/sec, so 2.5s delay = 24 req/min (safe margin)
-            if idx > 0:
-                time.sleep(2.5)  # Wait 2.5 seconds between TTS requests
-            
-            audio_path, message, duration_seconds, audio_bytes = generate_audio_from_text(
-                voice_data['text'], 
-                voice_data['filename_prefix'],
-                request_output_dir,
-                tts_client,
-                tts_model=tts_model
-            )
-            
-            if audio_path:
-                duration_timestamp = format_seconds_to_timestamp(duration_seconds)
-
-                # Update scenario JSON with the measured duration
-                if duration_timestamp:
-                    try:
-                        scenario_data['sections'][voice_data['section_index']]['key_frames'][voice_data['frame_index']]['voice_over_length_timestamp'] = duration_timestamp
-                    except (IndexError, KeyError, TypeError):
-                        print("Warning: Unable to write voice_over_length_timestamp for one of the keyframes.")
-
-                audio_results.append({
-                    'section': voice_data['section'],
-                    'frame_name': voice_data['frame_name'],
-                    'timestamp': voice_data['timestamp'],
-                    'text': voice_data['text'],
-                    'audio_path': audio_path,
-                    'duration_seconds': duration_seconds,
-                    'duration_timestamp': duration_timestamp,
-                    'audio_bytes': audio_bytes
-                })
-                status_appendix = f" (duration {duration_timestamp})" if duration_timestamp else ""
-                status_messages.append(f"✅ {voice_data['frame_name']}: {message}{status_appendix}")
-            else:
-                status_messages.append(f"❌ {voice_data['frame_name']}: {message}")
     
-    combined_audio_value = None
-    if audio_results:
-        combined_array, combine_error = combine_audio_arrays(
-            audio_results,
-            gap_keyframe_seconds=gap_keyframe_seconds,
-            gap_section_seconds=gap_section_seconds,
-            sample_rate=PCM_SAMPLE_RATE
-        )
-
-        if combine_error:
-            status_messages.append(f"⚠️ Unable to combine audio tracks: {combine_error}")
-        else:
-            combined_audio_value = numpy_audio_to_gradio_value(combined_array, sample_rate=PCM_SAMPLE_RATE)
-            if combined_audio_value is not None:
-                status_messages.append("🎧 Combined audio track ready for playback.")
-
-    # Persist updated scenario JSON with voice-over durations
+    # Persist scenario JSON
     updated_scenario_json = scenario_text
     scenario_file_message = ""
     try:
@@ -892,21 +834,43 @@ def generate_scenario_with_audio_and_manim(
         status_messages.append(scenario_file_message)
 
     # Generate and render Manim scenes if requested (one at a time)
+    # TTS generation moved here - after each scene renders successfully
     manim_files = []
     video_files = []
+    audio_results = []
+    final_video_path = None  # Initialize to prevent UnboundLocalError
+    
     if generate_manim and scenario_data:
         status_messages.append(f"\n🤖 Using LLM model: {llm_model}")
         status_messages.append("\n🎬 Generating and rendering Manim animations (one at a time)...")
         
+        if generate_voiceover:
+            status_messages.append(f"🎙️ Using TTS model: {tts_model}")
+        
         manim_dir = request_output_dir / "manim_scenes"
         manim_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize TTS client if needed
+        tts_client = None
+        if generate_voiceover:
+            tts_client = initialize_tts_client()
+            if tts_client is None:
+                status_messages.append("⚠️ Failed to initialize TTS client - voice-overs disabled")
+                generate_voiceover = False
         
         # Track previous scene code for context continuity
         previous_scene_code = None
         scene_index = 0
+        sections_processed = 0
         
         for section in scenario_data.get('sections', []):
+            # Apply sections limit
+            if sections_processed >= sections_limit:
+                status_messages.append(f"\n⏹️ Reached section limit ({sections_limit}), stopping generation...")
+                break
+            
             section_name = section.get('section_name', 'Unknown Section')
+            sections_processed += 1
             
             for frame in section.get('key_frames', []):
                 frame_name = frame.get('name', 'Unknown Frame')
@@ -972,7 +936,51 @@ def generate_scenario_with_audio_and_manim(
                     status_messages.append(f"✅ Rendered successfully: {safe_filename}.mp4")
                     
                     # ============================================================
-                    # STEP 3: Store successful scene for context and tracking
+                    # STEP 3: Generate audio AFTER successful render
+                    # ============================================================
+                    if generate_voiceover and tts_client:
+                        # Get voice-over text for this frame
+                        voice_text = frame.get('voice_over_text', '')
+                        
+                        if voice_text:
+                            # Add rate limiting delay
+                            if audio_results:  # Not first audio
+                                time.sleep(2.5)  # 2.5s delay to avoid quota errors
+                            
+                            status_messages.append(f"🎙️ Generating audio for: {frame_name}...")
+                            
+                            audio_path, message, duration_secs, audio_bytes = generate_audio_from_text(
+                                voice_text,
+                                f"{section_name.lower().replace(' ', '_')}_{frame_name.lower().replace(' ', '_')}",
+                                request_output_dir,
+                                client=tts_client,
+                                tts_model=tts_model
+                            )
+                            
+                            if audio_path:
+                                status_messages.append(f"✅ Audio: {message}")
+                                
+                                # Calculate timestamp
+                                duration_timestamp = None
+                                if duration_secs:
+                                    minutes = int(duration_secs // 60)
+                                    seconds = int(duration_secs % 60)
+                                    duration_timestamp = f"{minutes:02d}:{seconds:02d}"
+                                
+                                audio_results.append({
+                                    'section': section_name,
+                                    'frame_name': frame_name,
+                                    'text': voice_text,
+                                    'audio_path': audio_path,
+                                    'duration_seconds': duration_secs,
+                                    'duration_timestamp': duration_timestamp,
+                                    'audio_bytes': audio_bytes
+                                })
+                            else:
+                                status_messages.append(f"❌ Audio failed: {message}")
+                    
+                    # ============================================================
+                    # STEP 4: Store successful scene for context and tracking
                     # ============================================================
                     previous_scene_code = manim_code
                     
@@ -1064,7 +1072,10 @@ def generate_scenario_with_audio_and_manim(
                         status_messages.append(f"❌ Video concatenation failed: {error}")
                         final_video_path = None
 
-    final_status = f"Generated {len(audio_results)} audio tracks out of {len(voice_texts)} voice-overs:\n" + "\n".join(status_messages)
+    # Generate combined audio preview (optional - not displayed in UI anymore)
+    combined_audio_value = None
+    
+    final_status = f"Generated {len(audio_results)} audio tracks:\n" + "\n".join(status_messages)
 
     return updated_scenario_json, audio_results, final_status, combined_audio_value, manim_files, final_video_path
 
@@ -1174,24 +1185,33 @@ def create_gradio_app():
                     max_lines=5
                 )
                 
-                with gr.Row():
-                    quality_dropdown = gr.Dropdown(
-                        label="Video Quality",
-                        choices=[
-                            ("Low (480p)", "l"),
-                            ("Medium (720p)", "m"),
-                            ("High (1080p)", "h"),
-                            ("4K (2160p)", "k")
-                        ],
-                        value="m",
-                        interactive=True
-                    )
-                    
-                    generate_voiceover_checkbox = gr.Checkbox(
-                        label="Generate Voice-over",
-                        value=True,
-                        interactive=True
-                    )
+                quality_dropdown = gr.Dropdown(
+                    label="Video Quality",
+                    choices=[
+                        ("Low (480p)", "l"),
+                        ("Medium (720p)", "m"),
+                        ("High (1080p)", "h"),
+                        ("4K (2160p)", "k")
+                    ],
+                    value="m",
+                    interactive=True
+                )
+                
+                gr.Markdown("### Sections Limit")
+                sections_limit_slider = gr.Slider(
+                    minimum=1,
+                    maximum=10,
+                    value=10,
+                    step=1,
+                    info="Limit generation to first N sections (useful for testing)"
+                )
+                
+                generate_voiceover_checkbox = gr.Checkbox(
+                    label="🎙️ Generate Voice-over",
+                    value=True,
+                    interactive=True,
+                    info="Enable text-to-speech narration"
+                )
                 
                 with gr.Row():
                     llm_model_dropdown = gr.Dropdown(
@@ -1224,22 +1244,6 @@ def create_gradio_app():
                         info="Model for voice-over generation"
                     )
 
-                gap_keyframe_slider = gr.Slider(
-                    label="Gap between keyframes (seconds)",
-                    minimum=0.0,
-                    maximum=3.0,
-                    value=0.5,
-                    step=0.1
-                )
-
-                gap_section_slider = gr.Slider(
-                    label="Gap between sections (seconds)",
-                    minimum=0.0,
-                    maximum=5.0,
-                    value=1.0,
-                    step=0.1
-                )
-
                 generate_audio_btn = gr.Button("Generate Video", variant="primary", size="lg")
 
             with gr.Column(scale=3):
@@ -1264,12 +1268,6 @@ def create_gradio_app():
                     interactive=False,
                     visible=False
                 )
-
-                combined_audio_player = gr.Audio(
-                    label="Combined Audio Preview",
-                    interactive=False,
-                    visible=False
-                )
         
         # Example problems
         gr.Markdown("### 📚 Try these example problems:")
@@ -1286,31 +1284,31 @@ def create_gradio_app():
             cache_examples=False
         )
         
-        def handle_video_generation_ui(problem_text, quality, generate_voiceover, llm_model, tts_model, gap_keyframe, gap_section):
+        def handle_video_generation_ui(problem_text, quality, generate_voiceover, llm_model, tts_model, sections_limit):
             """Handle scenario generation with audio and Manim scripts for UI."""
             scenario_text, audio_results, status, combined_audio_value, manim_files, final_video_path = generate_scenario_with_audio_and_manim(
                 problem_text,
-                gap_keyframe_seconds=gap_keyframe,
-                gap_section_seconds=gap_section,
+                gap_keyframe_seconds=0.3,  # Fixed: shorter gap to prevent audio delays
+                gap_section_seconds=0.5,   # Fixed: shorter gap between sections
                 generate_manim=True,
                 generate_voiceover=generate_voiceover,
                 quality=quality,
                 llm_model=llm_model,
-                tts_model=tts_model
+                tts_model=tts_model,
+                sections_limit=sections_limit
             )
 
             return [
                 gr.update(value=str(final_video_path) if final_video_path else None, visible=final_video_path is not None),
                 scenario_text,
-                gr.update(value=status, visible=bool(status)),
-                gr.update(value=combined_audio_value, visible=combined_audio_value is not None and generate_voiceover)
+                gr.update(value=status, visible=bool(status))
             ]
         
         # Event handlers
         generate_audio_btn.click(
             fn=handle_video_generation_ui,
-            inputs=[problem_input, quality_dropdown, generate_voiceover_checkbox, llm_model_dropdown, tts_model_dropdown, gap_keyframe_slider, gap_section_slider],
-            outputs=[final_video_player, scenario_output, audio_status, combined_audio_player],
+            inputs=[problem_input, quality_dropdown, generate_voiceover_checkbox, llm_model_dropdown, tts_model_dropdown, sections_limit_slider],
+            outputs=[final_video_player, scenario_output, audio_status],
             show_progress=True
         )
     
