@@ -14,6 +14,16 @@ import vertexai
 from vertexai.generative_models import GenerativeModel, GenerationConfig
 import time
 import requests
+import warnings
+import logging
+
+# Suppress warnings and unnecessary logging
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+os.environ["GRPC_VERBOSITY"] = "ERROR"
+os.environ["GLOG_minloglevel"] = "2"
+logging.getLogger("absl").setLevel(logging.ERROR)
+logging.getLogger("google").setLevel(logging.ERROR)
 
 PCM_SAMPLE_WIDTH = 2  # bytes (16-bit)
 PCM_CHANNELS = 1
@@ -796,17 +806,36 @@ def generate_scenario_with_audio_and_manim(
     request_output_dir = base_output_dir / request_id
     request_output_dir.mkdir(parents=True, exist_ok=True)
     
+    print("\n" + "="*60)
+    print("🎬 VIDEO GENERATION STARTED")
+    print("="*60)
+    print(f"📁 Output folder: output/{request_id}/")
+    print(f"🤖 LLM Model: {llm_model}")
+    if generate_voiceover:
+        print(f"🎙️ TTS Model: {tts_model}")
+    print(f"📊 Quality: {quality}")
+    print(f"📋 Sections Limit: {sections_limit}")
+    print("="*60 + "\n")
+    
     # First generate the scenario
+    print("📝 Step 1/3: Generating video scenario...")
     scenario_text = generate_video_scenario(problem_text, llm_model=llm_model)
     
     if scenario_text.startswith("Error"):
+        print("❌ Failed to generate scenario\n")
         return scenario_text, [], "Failed to generate scenario", None, [], None
     
+    print("✅ Scenario generated successfully\n")
+    
     # Parse scenario JSON and extract voice-over texts
+    print("🔍 Step 2/3: Parsing scenario structure...")
     scenario_data, voice_texts, extraction_error = parse_scenario_json(scenario_text)
     
     if extraction_error:
+        print(f"❌ Parsing failed: {extraction_error}\n")
         return scenario_text, [], extraction_error, None, [], None
+    
+    print(f"✅ Found {len(scenario_data.get('sections', []))} sections with {len(voice_texts)} frames\n")
     
     if not voice_texts:
         return scenario_text, [], "No voice-over texts found in scenario", None, [], None
@@ -844,8 +873,16 @@ def generate_scenario_with_audio_and_manim(
         status_messages.append(f"\n🤖 Using LLM model: {llm_model}")
         status_messages.append("\n🎬 Generating and rendering Manim animations (one at a time)...")
         
+        print("\n" + "="*60)
+        print("🎬 Step 3/3: Generating and Rendering Scenes")
+        print("="*60)
+        
         if generate_voiceover:
             status_messages.append(f"🎙️ Using TTS model: {tts_model}")
+            print(f"🎙️ Voice-over enabled (TTS: {tts_model})")
+        else:
+            print("🔇 Voice-over disabled")
+        print("")
         
         manim_dir = request_output_dir / "manim_scenes"
         manim_dir.mkdir(parents=True, exist_ok=True)
@@ -892,6 +929,7 @@ def generate_scenario_with_audio_and_manim(
                 # ============================================================
                 # STEP 1: Generate Manim code with previous scene context
                 # ============================================================
+                print(f"🔨 [{scene_index + 1}] Generating scene: {safe_filename}")
                 status_messages.append(f"\n🔨 [{scene_index + 1}] Generating: {safe_filename}...")
                 
                 manim_code, error = generate_manim_scene(
@@ -904,8 +942,11 @@ def generate_scenario_with_audio_and_manim(
                 )
                 
                 if error:
+                    print(f"   ❌ Generation failed: {error}")
                     status_messages.append(f"❌ Generation failed: {error}")
                     continue
+                
+                print("   ✅ Code generated")
                 
                 # Save to file
                 manim_file_path = manim_dir / f"{safe_filename}.py"
@@ -913,13 +954,16 @@ def generate_scenario_with_audio_and_manim(
                 try:
                     manim_file_path.write_text(manim_code, encoding='utf-8')
                     status_messages.append(f"✅ Script saved: {safe_filename}.py")
+                    print("   💾 Script saved")
                 except Exception as write_error:
                     status_messages.append(f"❌ Failed to save script: {write_error}")
+                    print(f"   ❌ Failed to save: {write_error}")
                     continue
                 
                 # ============================================================
                 # STEP 2: Immediately render the scene
                 # ============================================================
+                print("   ⏳ Rendering...")
                 status_messages.append(f"⏳ Rendering: {safe_filename}...")
                 
                 video_path, render_error = render_manim_scene(
@@ -931,9 +975,11 @@ def generate_scenario_with_audio_and_manim(
                 
                 if render_error:
                     status_messages.append(f"❌ Render failed: {render_error}")
+                    print(f"   ❌ Render failed: {render_error}")
                     # Don't use failed scene as context
                 else:
                     status_messages.append(f"✅ Rendered successfully: {safe_filename}.mp4")
+                    print("   ✅ Render complete")
                     
                     # ============================================================
                     # STEP 3: Generate audio AFTER successful render
@@ -947,6 +993,7 @@ def generate_scenario_with_audio_and_manim(
                             if audio_results:  # Not first audio
                                 time.sleep(2.5)  # 2.5s delay to avoid quota errors
                             
+                            print("   🎙️ Generating voice-over...")
                             status_messages.append(f"🎙️ Generating audio for: {frame_name}...")
                             
                             audio_path, message, duration_secs, audio_bytes = generate_audio_from_text(
@@ -959,6 +1006,7 @@ def generate_scenario_with_audio_and_manim(
                             
                             if audio_path:
                                 status_messages.append(f"✅ Audio: {message}")
+                                print("   ✅ Audio generated")
                                 
                                 # Calculate timestamp
                                 duration_timestamp = None
@@ -978,6 +1026,7 @@ def generate_scenario_with_audio_and_manim(
                                 })
                             else:
                                 status_messages.append(f"❌ Audio failed: {message}")
+                                print(f"   ❌ Audio failed: {message}")
                     
                     # ============================================================
                     # STEP 4: Store successful scene for context and tracking
@@ -1011,6 +1060,9 @@ def generate_scenario_with_audio_and_manim(
                 # Combine videos with audio if voiceover was generated
                 final_video_path = None
                 if generate_voiceover and audio_results:
+                    print("\n" + "="*60)
+                    print("🎙️ Step 3/3: Combining videos with audio...")
+                    print("="*60)
                     status_messages.append("\n🎙️ Combining videos with voice-overs...")
                     
                     videos_with_audio_dir = request_output_dir / "videos_with_audio"
@@ -1018,7 +1070,7 @@ def generate_scenario_with_audio_and_manim(
                     
                     videos_with_audio = []
                     
-                    for video_info in video_files:
+                    for idx, video_info in enumerate(video_files, 1):
                         # Find matching audio
                         matching_audio = None
                         for audio_result in audio_results:
@@ -1028,6 +1080,7 @@ def generate_scenario_with_audio_and_manim(
                                 break
                         
                         if matching_audio:
+                            print(f"🔊 [{idx}/{len(video_files)}] Adding audio to {video_info['class_name']}...")
                             output_with_audio = videos_with_audio_dir / f"{video_info['class_name']}_with_audio.mp4"
                             success, error = combine_video_with_audio(
                                 video_info['video_path'],
@@ -1039,15 +1092,18 @@ def generate_scenario_with_audio_and_manim(
                             if success:
                                 videos_with_audio.append(str(output_with_audio))
                                 status_messages.append(f"✅ Combined audio: {video_info['class_name']}")
+                                print("   ✅ Success")
                             else:
                                 status_messages.append(f"⚠️ Audio combination failed for {video_info['class_name']}: {error}")
                                 videos_with_audio.append(video_info['video_path'])
+                                print("   ⚠️ Failed, using video without audio")
                         else:
                             # No audio for this video, use original
                             videos_with_audio.append(video_info['video_path'])
                     
                     # Concatenate all videos
                     if videos_with_audio:
+                        print(f"\n🎞️ Concatenating {len(videos_with_audio)} videos into final output...")
                         status_messages.append("\n🎞️ Creating final combined video...")
                         final_video_path = request_output_dir / "final_video.mp4"
                         
@@ -1055,11 +1111,16 @@ def generate_scenario_with_audio_and_manim(
                         
                         if success:
                             status_messages.append(f"✅ Final video created: output/{request_id}/final_video.mp4")
+                            print(f"✅ Final video ready: output/{request_id}/final_video.mp4")
                         else:
                             status_messages.append(f"❌ Video concatenation failed: {error}")
+                            print(f"❌ Concatenation failed: {error}")
                             final_video_path = None
                 else:
                     # No voiceover, just concatenate videos
+                    print("\n" + "="*60)
+                    print("🎞️ Step 3/3: Creating final video (no audio)...")
+                    print("="*60)
                     status_messages.append("\n🎞️ Creating final combined video...")
                     final_video_path = request_output_dir / "final_video.mp4"
                     
@@ -1068,12 +1129,25 @@ def generate_scenario_with_audio_and_manim(
                     
                     if success:
                         status_messages.append(f"✅ Final video created: output/{request_id}/final_video.mp4")
+                        print(f"✅ Final video ready: output/{request_id}/final_video.mp4")
                     else:
                         status_messages.append(f"❌ Video concatenation failed: {error}")
                         final_video_path = None
 
     # Generate combined audio preview (optional - not displayed in UI anymore)
     combined_audio_value = None
+    
+    # Print final summary
+    print("\n" + "="*60)
+    print("✅ VIDEO GENERATION COMPLETE!")
+    print("="*60)
+    print(f"📁 Output folder: output/{request_id}/")
+    print(f"🎬 Scenes generated: {len(video_files)}")
+    if generate_voiceover:
+        print(f"🎙️ Audio tracks: {len(audio_results)}")
+    if final_video_path:
+        print(f"🎥 Final video: output/{request_id}/final_video.mp4")
+    print("="*60 + "\n")
     
     final_status = f"Generated {len(audio_results)} audio tracks:\n" + "\n".join(status_messages)
 
