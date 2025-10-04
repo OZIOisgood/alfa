@@ -245,13 +245,13 @@ def generate_silence(duration_seconds, sample_rate=PCM_SAMPLE_RATE, sample_width
     raise ValueError("Unsupported sample width for silence generation")
 
 
-def apply_fade(samples, sample_rate=PCM_SAMPLE_RATE, fade_duration=0.05):
+def apply_fade(samples, sample_rate=PCM_SAMPLE_RATE, fade_duration=0.1):
     """Apply a short fade-in and fade-out to reduce clicks at boundaries.
     
     Args:
         samples: Audio samples as numpy array
         sample_rate: Sample rate in Hz
-        fade_duration: Duration of fade in seconds (default: 0.05s = 50ms to prevent clicking)
+        fade_duration: Duration of fade in seconds (default: 0.1s = 100ms to prevent clicking)
     """
     if samples is None or samples.size == 0:
         return samples
@@ -379,6 +379,7 @@ def combine_video_with_audio(video_path, audio_path, output_path, audio_timing='
         
         # Build ffmpeg command
         # Note: Manim videos have no audio stream, so we just add the audio as a new stream
+        # Use video duration as master, loop audio if too short, or trim if too long
         if delay > 0:
             # If there's a delay, use adelay filter
             cmd = [
@@ -386,27 +387,29 @@ def combine_video_with_audio(video_path, audio_path, output_path, audio_timing='
                 '-i', str(video_path),
                 '-i', str(audio_path),
                 '-filter_complex',
-                f'[1:a]adelay={int(delay * 1000)}|{int(delay * 1000)}[aout]',
+                f'[1:a]adelay={int(delay * 1000)}|{int(delay * 1000)},apad[aout]',  # Add padding at end
                 '-map', '0:v',
                 '-map', '[aout]',
                 '-c:v', 'copy',  # Copy video without re-encoding
                 '-c:a', 'aac',
                 '-b:a', '192k',
-                '-shortest',
+                '-shortest',  # Use video duration as master
                 str(output_path)
             ]
         else:
-            # No delay, just add audio directly
+            # No delay, just add audio directly with padding
             cmd = [
                 'ffmpeg', '-y',  # Overwrite output
                 '-i', str(video_path),
                 '-i', str(audio_path),
+                '-filter_complex',
+                '[1:a]apad[aout]',  # Add silent padding if audio is shorter than video
                 '-map', '0:v',
-                '-map', '1:a',
+                '-map', '[aout]',
                 '-c:v', 'copy',  # Copy video without re-encoding
                 '-c:a', 'aac',
                 '-b:a', '192k',
-                '-shortest',
+                '-shortest',  # Use video duration as master
                 str(output_path)
             ]
         
@@ -694,6 +697,11 @@ def generate_audio_from_text(text, filename_prefix, output_dir, client=None, tts
             
             audio_bytes = response.audio_content
 
+            # Apply fade to prevent clicks at start/end
+            audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
+            faded_audio = apply_fade(audio_array, sample_rate=PCM_SAMPLE_RATE, fade_duration=0.1)
+            audio_bytes = faded_audio.tobytes()
+
             # Determine duration from PCM bytes
             bytes_per_second = PCM_SAMPLE_RATE * PCM_SAMPLE_WIDTH
             duration_seconds = len(audio_bytes) / bytes_per_second if audio_bytes else 0
@@ -912,17 +920,18 @@ def generate_scenario_with_audio_and_manim(
             for frame in section.get('key_frames', []):
                 frame_name = frame.get('name', 'Unknown Frame')
                 animation_prompt = frame.get('animation_prompt', '')
-                voice_over_length = frame.get('voice_over_length_timestamp', '00:05')
+                # Try both field names for compatibility
+                voice_over_length = frame.get('estimate_length_timestamp') or frame.get('voice_over_length_timestamp', '00:05')
                 
                 if not animation_prompt:
                     continue
                 
-                # Parse timestamp to seconds
+                # Parse timestamp to seconds and add 0.5s padding to prevent audio cutoff
                 try:
                     parts = voice_over_length.split(':')
-                    duration_seconds = int(parts[0]) * 60 + int(parts[1])
+                    duration_seconds = int(parts[0]) * 60 + int(parts[1]) + 0.5  # Add 0.5s padding
                 except (ValueError, IndexError):
-                    duration_seconds = 5  # Default fallback
+                    duration_seconds = 5.5  # Default fallback with padding
                 
                 safe_filename = sanitize_class_name(f"{section_name}_{frame_name}")
                 
