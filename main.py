@@ -449,12 +449,14 @@ def concatenate_videos(video_paths, output_path):
             temp_list = f.name
         
         # Concatenate using ffmpeg
+        # Explicitly copy both video and audio streams
         cmd = [
             'ffmpeg', '-y',
             '-f', 'concat',
             '-safe', '0',
             '-i', temp_list,
-            '-c', 'copy',  # Copy without re-encoding for speed
+            '-c:v', 'copy',  # Copy video stream
+            '-c:a', 'copy',  # Copy audio stream
             str(output_path)
         ]
         
@@ -1113,6 +1115,10 @@ def generate_scenario_with_audio_and_manim(
                     # Concatenate all videos
                     if videos_with_audio:
                         print(f"\n🎞️ Concatenating {len(videos_with_audio)} videos into final output...")
+                        print("   Videos to concatenate:")
+                        for i, v in enumerate(videos_with_audio, 1):
+                            print(f"   {i}. {Path(v).name}")
+                        
                         status_messages.append("\n🎞️ Creating final combined video...")
                         final_video_path = request_output_dir / "final_video.mp4"
                         
@@ -1121,6 +1127,23 @@ def generate_scenario_with_audio_and_manim(
                         if success:
                             status_messages.append(f"✅ Final video created: output/{request_id}/final_video.mp4")
                             print(f"✅ Final video ready: output/{request_id}/final_video.mp4")
+                            
+                            # Verify audio stream exists
+                            try:
+                                verify_cmd = [
+                                    'ffprobe', '-v', 'error',
+                                    '-select_streams', 'a',
+                                    '-show_entries', 'stream=codec_name',
+                                    '-of', 'default=noprint_wrappers=1:nokey=1',
+                                    str(final_video_path)
+                                ]
+                                verify_result = subprocess.run(verify_cmd, capture_output=True, text=True, check=True)
+                                if verify_result.stdout.strip():
+                                    print(f"   ✅ Audio stream verified: {verify_result.stdout.strip()}")
+                                else:
+                                    print("   ⚠️ Warning: No audio stream detected in final video")
+                            except Exception as verify_error:
+                                print(f"   ⚠️ Could not verify audio stream: {verify_error}")
                         else:
                             status_messages.append(f"❌ Video concatenation failed: {error}")
                             print(f"❌ Concatenation failed: {error}")
