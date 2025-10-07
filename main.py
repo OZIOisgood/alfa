@@ -794,13 +794,14 @@ def generate_scenario_with_audio_and_manim(
     quality='m',
     llm_model="gemini-2.5-flash",
     tts_model="gemini-2.5-flash-tts",
-    sections_limit=10
+    sections_limit=10,
+    subject="math"
 ):
     """
     Generate a video scenario, create audio tracks, and generate Manim animation scripts.
     
     Args:
-        problem_text: The math problem to solve
+        problem_text: The problem or concept to explain
         gap_keyframe_seconds: Gap between keyframes in audio
         gap_section_seconds: Gap between sections in audio
         generate_manim: Whether to generate Manim animations
@@ -809,6 +810,7 @@ def generate_scenario_with_audio_and_manim(
         llm_model: Gemini model for scenario/animation generation
         tts_model: Gemini TTS model for voice-over generation
         sections_limit: Maximum number of sections to process
+        subject: Subject type (math, chemistry, physics, cs)
     """
     # Create unified output directory structure
     request_id = hashlib.md5((problem_text + str(os.urandom(8))).encode()).hexdigest()[:12]
@@ -820,6 +822,7 @@ def generate_scenario_with_audio_and_manim(
     print("🎬 VIDEO GENERATION STARTED")
     print("="*60)
     print(f"📁 Output folder: output/{request_id}/")
+    print(f"📚 Subject: {subject.upper()}")
     print(f"🤖 LLM Model: {llm_model}")
     if generate_voiceover:
         print(f"🎙️ TTS Model: {tts_model}")
@@ -829,7 +832,7 @@ def generate_scenario_with_audio_and_manim(
     
     # First generate the scenario
     print("📝 Step 1/3: Generating video scenario...")
-    scenario_text = generate_video_scenario(problem_text, llm_model=llm_model)
+    scenario_text = generate_video_scenario(problem_text, llm_model=llm_model, subject=subject)
     
     if scenario_text.startswith("Error"):
         print("❌ Failed to generate scenario\n")
@@ -1185,13 +1188,14 @@ def generate_scenario_with_audio_and_manim(
 
     return updated_scenario_json, audio_results, final_status, combined_audio_value, manim_files, final_video_path
 
-def generate_video_scenario(problem_text, llm_model="gemini-2.5-flash"):
+def generate_video_scenario(problem_text, llm_model="gemini-2.5-flash", subject="math"):
     """
-    Uses Vertex AI or OpenRouter to generate a video scenario for a math problem.
+    Uses Vertex AI or OpenRouter to generate a video scenario for an educational problem.
     
     Args:
-        problem_text: The math problem to solve
+        problem_text: The problem or concept to explain
         llm_model: Model to use (gemini-2.5-flash-lite, gemini-2.5-flash, gemini-2.5-pro, or openrouter models)
+        subject: Subject type (math, chemistry, physics, cs)
     """
     # Determine if using OpenRouter or Vertex AI
     use_openrouter = llm_model.startswith("openrouter/")
@@ -1201,13 +1205,32 @@ def generate_video_scenario(problem_text, llm_model="gemini-2.5-flash"):
         if not initialize_vertex_ai():
             return "Error: Failed to initialize Vertex AI"
     
+    # Map subject to template name
+    subject_template_map = {
+        "math": "video_scenario_math",
+        "chemistry": "video_scenario_chemistry",
+        "physics": "video_scenario_physics",
+        "cs": "video_scenario_cs"
+    }
+    
+    # Map subject to placeholder name in template
+    subject_placeholder_map = {
+        "math": "{math_problem}",
+        "chemistry": "{chemistry_problem}",
+        "physics": "{physics_problem}",
+        "cs": "{cs_problem}"
+    }
+    
+    template_name = subject_template_map.get(subject, "video_scenario_math")
+    placeholder = subject_placeholder_map.get(subject, "{math_problem}")
+    
     # Load the appropriate prompt template
-    prompt_template = load_prompt_template("video_scenario")
+    prompt_template = load_prompt_template(template_name)
     if prompt_template.startswith("Error:"):
         return prompt_template
     
-    # Format the prompt with the math problem using replace instead of format
-    formatted_prompt = prompt_template.replace("{math_problem}", problem_text)
+    # Format the prompt with the problem text
+    formatted_prompt = prompt_template.replace(placeholder, problem_text)
     
     # Add explicit JSON formatting instruction
     formatted_prompt += "\n\nIMPORTANT: Return ONLY valid JSON without any markdown code blocks. Ensure all JSON syntax is correct with proper commas and quotes."
@@ -1278,15 +1301,28 @@ def create_gradio_app():
     """
     Creates and returns the Gradio interface for video scenario generation with audio.
     """
-    with gr.Blocks(title="Math Video Animation Generator", theme=gr.themes.Soft()) as app:
-        gr.Markdown("# 🎬🎵 Math Video Animation Generator")
-        gr.Markdown("Enter a math problem and get a complete animated video with voice-overs!")
+    with gr.Blocks(title="ALFA - Educational Video Generator", theme=gr.themes.Soft()) as app:
+        gr.Markdown("# � ALFA")
+        gr.Markdown("**Automated Learning Framework for Animations** - Generate educational videos with voice-overs for Math, Chemistry, Physics, and Computer Science!")
         
         with gr.Row():
             with gr.Column(scale=2):
+                subject_dropdown = gr.Dropdown(
+                    label="📚 Subject",
+                    choices=[
+                        ("Mathematics", "math"),
+                        ("Chemistry", "chemistry"),
+                        ("Physics", "physics"),
+                        ("Computer Science", "cs")
+                    ],
+                    value="math",
+                    interactive=True,
+                    info="Select the subject area for your problem"
+                )
+                
                 problem_input = gr.Textbox(
-                    label="Math Problem",
-                    placeholder="Enter your math problem here (e.g., 'Solve for x: 2x + 5 = 15')",
+                    label="Problem or Concept",
+                    placeholder="Enter your problem or concept to explain (e.g., 'Explain binary search algorithm' or 'Balance the equation: H₂ + O₂ → H₂O')",
                     lines=3,
                     max_lines=5
                 )
@@ -1390,7 +1426,7 @@ def create_gradio_app():
             cache_examples=False
         )
         
-        def handle_video_generation_ui(problem_text, quality, generate_voiceover, llm_model, tts_model, sections_limit):
+        def handle_video_generation_ui(subject, problem_text, quality, generate_voiceover, llm_model, tts_model, sections_limit):
             """Handle scenario generation with audio and Manim scripts for UI."""
             scenario_text, audio_results, status, combined_audio_value, manim_files, final_video_path = generate_scenario_with_audio_and_manim(
                 problem_text,
@@ -1401,7 +1437,8 @@ def create_gradio_app():
                 quality=quality,
                 llm_model=llm_model,
                 tts_model=tts_model,
-                sections_limit=sections_limit
+                sections_limit=sections_limit,
+                subject=subject
             )
 
             return [
@@ -1413,7 +1450,7 @@ def create_gradio_app():
         # Event handlers
         generate_audio_btn.click(
             fn=handle_video_generation_ui,
-            inputs=[problem_input, quality_dropdown, generate_voiceover_checkbox, llm_model_dropdown, tts_model_dropdown, sections_limit_slider],
+            inputs=[subject_dropdown, problem_input, quality_dropdown, generate_voiceover_checkbox, llm_model_dropdown, tts_model_dropdown, sections_limit_slider],
             outputs=[final_video_player, scenario_output, audio_status],
             show_progress=True
         )
@@ -1424,7 +1461,7 @@ def main():
     """
     Main function to launch the Video Scenario Generator with Audio app.
     """
-    print("🚀 Starting Math Video Scenario Generator with Audio...")
+    print("🚀 Starting ALFA - Educational Video Generator...")
     
     app = create_gradio_app()
     
