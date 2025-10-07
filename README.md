@@ -34,6 +34,15 @@ Key ideas:
 
 ---
 
+## Demo ▶️
+<div align="center">
+  <video src="assets/alfa.promo.v1.mp4" controls width="50%">
+    Sorry, your browser does not support embedded videos.
+  </video>
+</div>
+
+---
+
 ## Features 🚀
 
 - 🎯 Subject aware prompts for Math, Physics, Chemistry, and Computer Science
@@ -45,13 +54,6 @@ Key ideas:
 - 🐳 Docker image for isolated rendering
 - 🧾 Configuration through a simple `.env` file
 - 🧠 Extensible prompt packs and scene templates
-
----
-
-## Demo ▶️
-
-- Demo video: `./assets/alfa.promo.v1.mp4`
-- Screenshots are available in the `assets` folder
 
 ---
 
