@@ -37,7 +37,7 @@ Key ideas:
 ## Demo ▶️
 <div align="center">
 
-[![Watch promo](assets/alfa.promo-poster.v1.png)](assets/alfa.promo.v1.mp4)
+[![Watch promo](assets/alfa.promo-poster.v1.png)](https://youtu.be/4-2JxyWBJeE)
 
 </div>
 
