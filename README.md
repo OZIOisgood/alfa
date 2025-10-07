@@ -1,378 +1,262 @@
-<div align="center"><div align="center"><div align="center">
+<div align="center">
+  <img src="assets/alfa.png" alt="ALFA Logo" width="420" />
+</div>
 
-  <img src="assets/alfa.png" alt="ALFA Logo" width="200" />
+<br/>
 
-  	<img src="assets/alfa.png" alt="ALFA Logo" height="50%" />	<img src="assets/alfa.png" alt="ALFA Logo" height="50%" />
+<div align="center">
 
-  # ALFA
+[![Docs](https://img.shields.io/badge/docs-live-brightgreen)](https://ozioisgood.github.io/alfa/)
+[![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/downloads/)
 
-  </div></div>
+</div>
 
-  **From problem to AI generated explainer animations**
+<br/>
 
-  
+# ALFA 🎬✨
 
-  [![Documentation](https://img.shields.io/badge/docs-live-brightgreen)](https://ozioisgood.github.io/alfa/)
+**❓ Automated Learning Framework for Animation**
 
-  [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)# ALFA — From problem to AI generated explainer animations# ALFA — Short Math Explainer Generator
-
-  [![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
-
-  
-
-  [📖 Documentation](https://ozioisgood.github.io/alfa/) · [🚀 Quick Start](#quick-start) · [💡 Examples](#examples)
-
-</div>> **TL;DR:** ALFA is an educational video generator that turns any problem or concept into a **30–180s** animated explanation with voice-over narration. Supports **Math, Chemistry, Physics, and Computer Science**!> **TL;DR:** ALFA is an app that turns any math problem you paste in into a **30–180s** video explanation with voice-over narration.
-
-
+> Paste a problem. Get a short explainer video with narration and clean visuals. ✨
 
 ---
 
+## Overview 🧭
 
+ALFA turns a single educational problem into a concise video with narration and animated graphics.
+It is designed for students, teachers, and self learners who prefer visual clarity over long lectures.
+The pipeline writes a script, renders scenes with Manim, generates voice using cloud TTS, and stitches the final video.
 
-## 🎬 What is ALFA?## What it does## What it does
+Key ideas:
+- One problem to one tidy video
+- Visual first explanations with minimal clutter
+- Simple local setup with optional Docker
 
+---
 
+## Features 🚀
 
-ALFA transforms any educational problem into a **beautiful animated video with AI narration** in minutes.
+- 🎯 Subject aware prompts for Math, Physics, Chemistry, and Computer Science
+- 🎞️ Manim based animations with LaTeX support
+- 🔊 Natural voice narration using Google Cloud Text to Speech
+- 🎚️ Quality presets: 480p, 720p, 1080p, 4K
+- 🌐 Gradio web UI for quick runs
+- 🧩 CLI for batch jobs
+- 🐳 Docker image for isolated rendering
+- 🧾 Configuration through a simple `.env` file
+- 🧠 Extensible prompt packs and scene templates
 
+---
 
+## Demo ▶️
 
-**Supported Subjects:*** You enter a problem or concept in any supported subject* You paste a math problem.
+- Demo video: `./assets/alfa.promo.v1.mp4`
+- Screenshots are available in the `assets` folder
 
-* 📐 **Mathematics** - Equations, graphs, geometry, calculus
+---
 
-* 🧪 **Chemistry** - Reactions, molecules, balancing, stoichiometry* ALFA creates a short, clear, narrated video that shows the **steps** and the **why*** ALFA creates a short, clear, narrated video that shows the **steps** and the **why**.
+## Supported Subjects 📚
 
-* ⚡ **Physics** - Forces, motion, energy, circuits
+- 📐 Mathematics - equations, graphs, geometry, calculus, algebra
+- 🧲 Physics - kinematics, forces, energy, circuits, waves
+- 🧪 Chemistry - reactions, molecules, balancing, stoichiometry
+- 💻 Computer Science - algorithms, data structures, complexity
 
-* 💻 **Computer Science** - Algorithms, data structures, Big-O* Generates professional animations with synchronized voice-overs
+---
 
+## Requirements 🧰
 
+- 🐍 Python 3.13 or newer
+- 📦 UV package manager
+- 🎬 FFmpeg in your PATH
+- 🐳 Docker optional but recommended for reproducible rendering
+- ☁️ Google Cloud credentials if you want TTS
 
-## ✨ Key Features## Who it’s for
+---
 
+## Quick start ⚡
 
-
-* **🎙️ AI Voice Narration** - Natural speech synthesis via Google Gemini TTS## Supported Subjects
-
-* **🎬 Professional Animations** - Manim-powered visuals (same engine as 3Blue1Brown)
-
-* **🚀 Lightning Fast** - Generate 60-90s videos in just 5-10 minutesStudents, self‑learners, and busy folks who want fast, visual clarity instead of long lectures.
-
-* **🎨 Quality Options** - 480p, 720p, 1080p, or 4K rendering
-
-* **🤖 9 AI Models** - Choose from Gemini, GPT-4, Claude, and more* 📐 **Mathematics** - Equations, geometry, calculus, algebra, and more
-
-* **🐳 Docker Support** - Isolated rendering environment with full LaTeX support
-
-* 🧪 **Chemistry** - Reactions, molecular structures, stoichiometry, balancing equations## Why it’s useful
-
-## 📺 Example Output
-
-* ⚡ **Physics** - Kinematics, forces, energy, circuits, waves, and dynamics
-
-**Input:** `Find the area of a circle with radius 5 cm`
-
-* 💻 **Computer Science** - Algorithms, data structures, sorting, searching, complexity analysis* **One problem → one concise video**
-
-**Output:** A 75-second video featuring:
-
-- Animated circle drawing* **Visual-first** explanations that highlight the key idea
-
-- Radius visualization  
-
-- Formula derivation (A = πr²)## Who it's for* **Plain language** and friendly pacing
-
-- Step-by-step calculation
-
-- Final answer with narration
-
-
-
-[🎥 Watch Demo Video](./assets/alfa.promo.v1.mp4)Students, self‑learners, educators, and anyone who wants fast, visual understanding instead of long lectures or dense textbooks.## How it works (simple)
-
-
-
-## 🚀 Quick Start
-
-
-
-### Prerequisites## Why it's useful1. **Input**: Paste your problem + choose quality & voice-over options
-
-
-
-- Python 3.13+2. **Generate**: AI creates script, animations, and voice-over
-
-- UV package manager
-
-- Docker (recommended)* **One problem → one concise video**3. **Process**: Videos are rendered and combined automatically
-
-- FFmpeg
-
-* **Visual-first** explanations that highlight the key idea4. **Output**: A complete video ready to watch or download
-
-### Installation
-
-* **Subject-specific** visualizations (molecular models, force diagrams, code execution, graphs)
+Clone the repository and install dependencies:
 
 ```bash
-
-# Clone the repository* **Plain language** and friendly pacing> Built with **Gradio** (UI), **GPT-4** (script generation), **Manim** (animations), **Google TTS** (voice-over), and **FFmpeg** (video processing).
-
 git clone https://github.com/OZIOisgood/alfa.git
-
-cd alfa* **Professional quality** with smooth animations and clear audio
-
-
-
-# Install dependencies## Quick Start
-
+cd alfa
 uv sync
+```
 
-## How it works (simple)
+Set up environment variables:
 
-# Build Docker image (recommended)
-
-docker build -t alfa-manim:latest .```bash
-
-
-
-# Set up credentials (see docs)1. **Select Subject**: Choose Math, Chemistry, Physics, or Computer Science# Install dependencies
-
+```bash
 cp .env.example .env
+# Edit .env and add your API keys
+```
 
-# Add your API keys to .env2. **Input Problem**: Enter your problem or concept to explainuv sync
+Launch the app:
 
-
-
-# Run the Gradio app3. **Generate**: AI creates subject-specific script, animations, and voice-over
-
+```bash
 uv run python run-gradio.py
-
-```4. **Process**: Videos are rendered and combined automatically# Start the app
-
-
-
-Visit `http://127.0.0.1:7865` to start creating videos!5. **Output**: A complete educational video ready to watch or shareuv run python main.py
-
-
-
-📖 **Full installation guide:** [Documentation](https://ozioisgood.github.io/alfa/docs/installation)```
-
-
-
-## 💡 Examples> Built with **Gradio** (UI), **Gemini/GPT-4** (script generation), **Manim** (animations), **Google TTS** (voice-over), and **FFmpeg** (video processing).
-
-
-
-### MathematicsVisit **http://127.0.0.1:7865** and try it out!
-
 ```
 
-Problem: Find the slope between points (2, 4) and (6, 12)## Quick Start
+Open the URL that Gradio prints. Paste a problem. Select a quality profile. Generate.
 
-→ Coordinate grid, point plotting, slope calculation
+---
 
-```📖 See [QUICK_START.md](QUICK_START.md) for detailed usage guide.
+## Docker usage 🐳
 
+Build the image:
 
-
-### Chemistry```bash
-
+```bash
+docker build -t alfa-manim:latest .
 ```
 
-Problem: Balance: CH₄ + O₂ → CO₂ + H₂O# Install dependencies## Status
+Run the app inside Docker:
 
-→ Molecular models, atom counting, balanced equation
-
-```uv sync
-
-
-
-### Physics* ✅ Core features complete: video generation, audio sync, quality selection
-
+```bash
+docker run -it --rm -p 7865:7865 \
+  -v "$PWD/output:/app/output" \
+  -v "$PWD/.credentials:/app/.credentials" \
+  --env-file .env \
+  alfa-manim:latest uv run python run-gradio.py
 ```
 
-Problem: Ball dropped from 45m, find time to hit ground# Start the app* ✅ Docker support for isolated Manim rendering
+---
 
-→ Free-body diagram, kinematics equations, solution
+## Project structure 🗂️
 
-```uv run python main.py* ✅ Comprehensive LaTeX package support
-
-
-
-### Computer Science```* 🚧 Testing and optimization ongoing
-
-```
-
-Problem: Explain binary search on [3, 7, 12, 18, 25, 31, 42]* 🎬 Sample videos: Coming soon
-
-→ Array visualization, pointers, O(log n) complexity
-
-```Visit **http://127.0.0.1:7865** and try it out!
-
-
-
-## 📁 Project Structure
-
-
-
-```📖 See [QUICK_START.md](QUICK_START.md) for detailed usage guide.## What's next
-
+```txt
 alfa/
-
-├── apps/
-
-│   ├── gradio/          # Gradio web application
-
-│   │   ├── main.py      # Main app entry point## Example Use Cases* 📹 Publish demo videos and examples
-
-│   │   └── prompts/     # Subject-specific prompts
-
-│   └── docs/            # Docusaurus documentation site* 🌐 Deploy web version
-
-├── output/              # Generated videos
-
-├── assets/              # Static assets### Mathematics
-
-├── .credentials/        # API credentials (not in git)
-
-└── run-gradio.py        # Launch script```## Want to help?
-
+├─ apps/
+│  ├─ gradio/               Web UI
+│  │  ├─ main.py            Entry point
+│  │  └─ prompts/           Subject specific prompts
+│  └─ docs/                 Docusaurus site
+├─ output/                  Rendered videos
+├─ assets/                  Static assets and promo media
+├─ .credentials/            API credentials, not committed
+└─ run-gradio.py            Launcher
 ```
 
-"Find the slope of the line passing through points (2, 4) and (6, 12)"
+---
 
-## 🎓 Documentation
+## How it works 🔧
 
-→ Coordinate grid, point plotting, slope calculation with visual formulaOpen an issue with a problem you’d like explained in under two minutes.
+1. Input - user submits a short problem statement
+2. Plan - LLM drafts a script and a scene outline
+3. Render - Manim renders scenes with math notation where needed
+4. Voice - TTS generates a natural reading of the script
+5. Compose - FFmpeg merges video and audio into a single file
+6. Deliver - the final MP4 is stored in `output`
 
-Our comprehensive documentation includes:
+Design principles:
+- Keep scenes short and legible
+- Focus on the core idea and the answer path
+- Prefer consistent pacing and typography
 
+---
+
+## Configuration ⚙️
+
+ALFA reads settings from `.env`. Examples:
+
+```env
+OPENAI_API_KEY=your_key_or_empty
+GOOGLE_APPLICATION_CREDENTIALS=/app/.credentials/key.json
+VOICE_NAME=en-US-Standard-B
+VIDEO_QUALITY=720p
+SCENE_FPS=30
 ```
 
-- **Getting Started** - Installation, configuration, first video
+You can also set per run options in the UI or via CLI flags.
 
-- **Subject Guides** - Best practices for each subject area---
+---
 
-- **Advanced Topics** - Custom prompts, Docker, API usage
+## CLI usage 💻
 
-- **Examples** - Sample problems and outputs### Chemistry
+The CLI runs a single prompt to video job:
 
-
-
-**📖 Visit:** [ozioisgood.github.io/alfa](https://ozioisgood.github.io/alfa/)```**ALFA** — *Paste a problem. Get a tiny, tidy video.*
-
-
-
-## 🛠️ Technology Stack"Balance the combustion reaction: CH₄ + O₂ → CO₂ + H₂O"
-
-→ Molecular structures, atom counting, balanced equation with coefficients
-
-- **Frontend:** Gradio for web UI```
-
-- **AI/LLM:** Vertex AI (Gemini), OpenRouter (GPT-4, Claude)
-
-- **Animations:** Manim Community Edition### Physics
-
-- **Voice:** Google Cloud Text-to-Speech```
-
-- **Video:** FFmpeg for processing"A ball is thrown horizontally from a 20m cliff at 15 m/s. Find time to impact."
-
-- **Containerization:** Docker for rendering→ Free body diagram, trajectory path, kinematic equations solved step-by-step
-
-- **Documentation:** Docusaurus with React```
-
-
-
-## 📊 Performance### Computer Science
-
+```bash
+uv run python -m apps.gradio.main \
+  --problem "Find the slope between points (2, 4) and (6, 12)" \
+  --subject math \
+  --quality 720p \
+  --voice en-US-Standard-B
 ```
 
-| Quality | Resolution | Render Time* | File Size** |"Explain binary search algorithm with array [5, 12, 23, 42, 57, 68, 91]"
+---
 
-|---------|-----------|--------------|-------------|→ Array visualization, pointer movement, comparisons, O(log n) complexity
+## Examples 🎓
 
-| Low     | 480p      | 2-3 min      | ~10 MB      |```
+Mathematics:
 
-| Medium  | 720p      | 5-10 min     | ~30 MB      |
+```text
+Problem: Find the area of a circle of radius 5 cm
+Output: 75 second clip with formula A = pi r^2, intermediate steps, and narrated answer
+```
 
-| High    | 1080p     | 15-25 min    | ~150 MB     |## Features
+Physics:
 
-| 4K      | 2160p     | 30-60 min    | ~500 MB     |
+```text
+Problem: A ball is dropped from 45 m. Find time to impact
+Output: free body diagram, kinematic formula, result with units
+```
 
-* ✅ **Multi-subject support**: Math, Chemistry, Physics, Computer Science
+Chemistry:
 
-*For typical 60-90s videos  * ✅ **9 LLM models**: Gemini (Vertex AI) + GPT-4, Claude (OpenRouter)
+```text
+Problem: Balance CH4 + O2 -> CO2 + H2O
+Output: molecule counts and balanced coefficients
+```
 
-**Approximate, varies by content* ✅ **Subject-specific prompts**: Optimized for each discipline
+Computer Science:
 
-* ✅ **Professional animations**: Manim-powered visualizations
+```text
+Problem: Explain binary search on a sorted array
+Output: step by step pointer animation with O(log n) summary
+```
 
-## 🤝 Contributing* ✅ **Voice synthesis**: Google TTS with natural narration
+---
 
-* ✅ **Quality options**: 480p, 720p, 1080p, 4K
+## Performance notes 📈
 
-We welcome contributions! Areas where you can help:* ✅ **Docker support**: Isolated rendering environment
+| Quality | Resolution | Typical render time | Approx file size |
+|---------|------------|---------------------|------------------|
+| Low     | 480p       | 2 to 3 min          | ~10 MB           |
+| Medium  | 720p       | 4 to 8 min          | ~30 MB           |
+| High    | 1080p      | 15 to 25 min        | ~150 MB          |
+| Ultra   | 2160p      | 30 to 60 min        | ~500 MB          |
 
-* ✅ **Section limiting**: Test with fewer sections
+Numbers vary by scene complexity, font use, and LaTeX density.
 
-- 🧪 Test with different problem types* ✅ **Sequential generation**: Reliable scene-by-scene processing
+---
 
-- 📝 Improve documentation
+## Troubleshooting 🩺
 
-- 🎨 Enhance prompts for better outputs## Status
+TTS produces a click at the start:
+- Prepend 50 ms of silence in FFmpeg using `-af adelay`
+- Verify your voice selection and sample rate
 
-- 🐛 Report bugs and issues
+LaTeX errors during render:
+- Ensure Manim LaTeX packages are available inside Docker
+- Reduce nested TeX expressions or pre render complex parts as SVG
 
-- ✨ Suggest new features* ✅ Core features complete: multi-subject video generation, audio sync, quality selection
+Long render times:
+- Lower resolution or FPS
+- Disable motion blur and shadows in templates
 
-* ✅ Subject-specific prompts for Math, Chemistry, Physics, CS
+---
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.* ✅ Docker support for isolated Manim rendering
+## Security and privacy 🔐
 
-* ✅ Comprehensive LaTeX package support
+- Do not commit real keys. Use `.env` and `.credentials` only
+- Review terms of your LLM and TTS providers
+- Keep student data out of prompts unless you have consent
 
-## 📄 License* 🚧 Testing and optimization ongoing
+---
 
-* 🎬 Sample videos: Coming soon
+## Roadmap 🗺️
 
-This project is licensed under the MIT License - see [LICENSE](LICENSE) file for details.
-
-## What's next
-
-## 🙏 Acknowledgments
-
-* 📹 Publish demo videos for each subject
-
-- **Manim Community** - For the amazing animation engine* 🌐 Deploy web version
-
-- **3Blue1Brown** - Inspiration for visual math explanations* 📚 Add more subject areas (Biology, Economics, etc.)
-
-- **Google Cloud** - Text-to-Speech and Vertex AI* 🎨 Enhanced visualization templates
-
-- **OpenAI, Anthropic** - LLM capabilities
-
-## Want to help?
-
-## 📞 Support
-
-Open an issue with a problem from any subject you'd like explained in under two minutes.
-
-- 📖 [Documentation](https://ozioisgood.github.io/alfa/)
-
-- 💬 [GitHub Issues](https://github.com/OZIOisgood/alfa/issues)---
-
-- ⭐ [Star on GitHub](https://github.com/OZIOisgood/alfa)
-
-**ALFA** — *From problem to AI generated explainer animations*  
-
----Paste a problem. Get a visual explanation.
-
-
-<div align="center">
-  <strong>ALFA</strong> - <em>Transform problems into visual understanding</em>
-  
-  Made with ❤️ for educators and learners worldwide
-</div>
+- More subject packs including Biology and Economics
+- Parametric templates for common problem types
+- Batch mode for classroom sets
+- Pluggable TTS providers
+- Rich theme system for typography and color
