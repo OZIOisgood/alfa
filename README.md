@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/alfa.png" alt="ALFA Logo" width="420" />
+  <img src="assets/alfa.logo.png" alt="ALFA Logo" width="420" />
 </div>
 
 <br/>
