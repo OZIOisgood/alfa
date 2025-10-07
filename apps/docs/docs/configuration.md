@@ -303,8 +303,8 @@ DEFAULT_TTS_MODEL=gemini-2.5-pro-tts
 
 ## Next Steps
 
-- 📚 Read [subject-specific guides](./subjects/math)
-- 💡 Check out [examples](./examples)
-- 🐳 Learn about [Docker usage](./advanced/docker)
+- � [Quick Start Guide](./quick-start) - Generate your first video
+- 📖 [Introduction](./intro) - Learn more about ALFA
+- 💬 [GitHub Repository](https://github.com/OZIOisgood/alfa) - Report issues or contribute
 
 Need help? [Open an issue](https://github.com/OZIOisgood/alfa/issues)!

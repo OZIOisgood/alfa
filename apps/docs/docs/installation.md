@@ -158,7 +158,7 @@ docker build -t alfa-manim:latest .  # Rebuild Docker image
 
 - 🚀 [Quick Start Guide](./quick-start) - Generate your first video
 - ⚙️ [Configuration](./configuration) - Customize ALFA settings
-- 📚 [Examples](./examples) - See sample problems
+- � [Introduction](./intro) - Learn more about ALFA
 
 ---
 

@@ -143,13 +143,9 @@ Time: ~20 minutes
 
 ## Next Steps
 
-- 📚 Explore [Examples](./examples) for more ideas
 - ⚙️ Learn about [Configuration](./configuration) options
-- 🎨 Read subject-specific guides:
-  - [Mathematics](./subjects/math)
-  - [Chemistry](./subjects/chemistry)
-  - [Physics](./subjects/physics)
-  - [Computer Science](./subjects/cs)
+- 📖 Read the [Introduction](./intro) for more details
+- 💬 Visit [GitHub](https://github.com/OZIOisgood/alfa) to report issues or contribute
 
 ---
 

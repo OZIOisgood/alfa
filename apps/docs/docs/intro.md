@@ -95,7 +95,7 @@ Ready to get started?
 
 - 📥 [Installation Guide](./installation) - Set up ALFA on your machine
 - 🚀 [Quick Start](./quick-start) - Generate your first video
-- 📚 [Examples](./examples) - See sample problems and outputs
+- ⚙️ [Configuration](./configuration) - Customize ALFA settings
 
 ## Need Help?
 
