@@ -36,9 +36,9 @@ Key ideas:
 
 ## Demo ▶️
 <div align="center">
-  <video src="assets/alfa.promo.v1.mp4" controls width="50%">
-    Sorry, your browser does not support embedded videos.
-  </video>
+
+[![Watch promo](assets/alfa.promo-poster.v1.png)](assets/alfa.promo.v1.mp4)
+
 </div>
 
 ---
