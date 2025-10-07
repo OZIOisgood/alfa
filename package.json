@@ -1,0 +1,29 @@
+{
+  "name": "alfa-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ALFA - From problem to AI generated explainer animations",
+  "scripts": {
+    "docs": "cd apps/docs && npm start",
+    "docs:build": "cd apps/docs && npm run build",
+    "docs:serve": "cd apps/docs && npm run serve",
+    "docs:install": "cd apps/docs && npm install",
+    "gradio": "uv run python run-gradio.py",
+    "docker:build": "docker build -t alfa-manim:latest .",
+    "docker:test": "docker run --rm alfa-manim:latest --version"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OZIOisgood/alfa.git"
+  },
+  "keywords": [
+    "education",
+    "animation",
+    "manim",
+    "ai",
+    "machine-learning",
+    "educational-videos"
+  ],
+  "author": "ALFA Contributors",
+  "license": "MIT"
+}

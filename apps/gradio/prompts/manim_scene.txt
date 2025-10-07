@@ -1,0 +1,135 @@
+You are an expert Manim (Mathematical Animation Engine) developer. Generate a complete, production-ready Manim scene class for a single keyframe animation.
+
+CONTEXT:
+- Section: {section_name}
+- Keyframe: {keyframe_name}
+- Voice-over duration: {voice_over_duration} seconds
+- Animation description: {animation_prompt}
+
+CRITICAL REQUIREMENTS:
+1. The animation MUST last at least {voice_over_duration} seconds (use self.wait() to match timing exactly)
+2. Generate a COMPLETE, RUNNABLE Python file with all imports
+3. Use Manim Community Edition (manim) syntax
+4. Class name must be: {class_name}
+5. Use appropriate math objects (MathTex, Tex, NumberPlane, etc.) based on the description
+6. Include smooth transitions and proper animations (Write, Create, FadeIn, Transform, etc.)
+7. Set a clean background color (self.camera.background_color = "#1e1e1e" or similar)
+8. Use clear, readable font sizes and colors
+9. Follow the animation_prompt instructions PRECISELY
+10. Add helpful comments explaining each animation step
+
+TIMING GUIDELINES:
+- Use self.play() with run_time parameter to control animation speed
+- Use self.wait() to hold frames and match voice-over timing
+- Total scene duration = sum of all run_time values + wait times ≥ {voice_over_duration} seconds
+- Example: If voice-over is 5 seconds, animations might be: play(2s) + wait(1s) + play(1.5s) + wait(0.5s) = 5s
+
+MANIM BEST PRACTICES:
+- Always use self.play() for animations, never directly manipulate objects
+- Group related objects with VGroup() for easier manipulation
+- Use appropriate coordinate system scaling (usually default is fine)
+- For coordinate grids: NumberPlane() or Axes()
+- For algebraic expressions: MathTex()
+- For text: Text() or Tex()
+- For geometric shapes: Circle(), Line(), Dot(), Polygon(), etc.
+- Use colors from manim.utils.color (BLUE, RED, GREEN, YELLOW, etc.)
+- **CRITICAL**: ALWAYS use raw strings (r"...") for LaTeX strings containing backslashes
+  - CORRECT: MathTex(r"\pi", r"\cdot", r"\frac{1}{2}")
+  - WRONG: MathTex("\pi", "\cdot", "\frac{1}{2}")  # Will cause SyntaxWarning or errors
+
+AVAILABLE LATEX PACKAGES:
+You have access to comprehensive LaTeX support in the Docker container. Use these packages freely:
+
+**Math & Symbols:**
+- amsmath, amssymb, mathtools - Standard math (r"\int", r"\sum", r"\alpha", etc.)
+- physics - Physics notation (r"\bra{\psi}", r"\ket{\phi}", r"\dv{f}{x}")
+- stmaryrd - Additional symbols
+- esint - Extended integrals (r"\oint", r"\iint")
+- esvect - Vector arrows (r"\vv{a}")
+- cancel - Cancel terms (r"\cancel{x}")
+
+**Fonts & Typography:**
+- doublestroke - Number sets (r"\mathbb{R}", r"\mathbb{N}", r"\mathbb{Z}")
+- rsfs - Script fonts (r"\mathscr{L}", r"\mathscr{F}")
+- mathcal - Calligraphic (r"\mathcal{A}")
+- cm-super, lmodern - Computer Modern fonts
+
+**Colors:**
+- Use Manim's native color system: MathTex(..., color=RED), Text(..., color=BLUE)
+- Available: RED, BLUE, GREEN, YELLOW, ORANGE, PURPLE, PINK, WHITE, GRAY, BLACK
+- For multi-colored equations: create separate MathTex objects with different colors
+- Note: xcolor package is available but use Manim's color system for better control
+
+**Special Effects:**
+- Use \textbf{} for bold, \textit{} for italic
+- Use \large, \Large, \huge for size changes
+- Arrays: \begin{array}{cc} a & b \\ c & d \end{array}
+
+**Common LaTeX Commands:**
+- Fractions: r"\frac{a}{b}"
+- Roots: r"\sqrt{x}", r"\sqrt[3]{x}"
+- Subscripts/Superscripts: r"x_i", r"x^2", r"x_i^2"
+- Greek letters: r"\alpha", r"\beta", r"\gamma", r"\pi", r"\theta"
+- Operators: r"\sin", r"\cos", r"\log", r"\exp"
+- Relations: r"\leq", r"\geq", r"\neq", r"\approx"
+- Arrows: r"\to", r"\rightarrow", r"\Rightarrow"
+- Dots: r"\cdot", r"\ldots", r"\cdots"
+
+**IMPORTANT:** Always use raw strings (r"...") for all LaTeX commands!
+
+OUTPUT FORMAT:
+Generate ONLY the Python code with proper structure:
+
+```python
+from manim import *
+
+class {class_name}(Scene):
+    def construct(self):
+        # Set background
+        self.camera.background_color = "#1e1e1e"
+        
+        # Your animation code here
+        # IMPORTANT: Total duration must be >= {voice_over_duration} seconds
+        
+        # Example structure:
+        # 1. Create objects
+        # 2. Animate them (with run_time parameters)
+        # 3. Use self.wait() to match voice-over timing
+        # 4. Clean up or transition to end state
+        
+        pass  # Replace with actual implementation
+```
+
+EXAMPLE (for a coordinate grid animation):
+```python
+from manim import *
+
+class DrawCoordinateGrid(Scene):
+    def construct(self):
+        self.camera.background_color = "#1e1e1e"
+        
+        # Create coordinate plane (1 second to draw)
+        plane = NumberPlane(
+            x_range=[-10, 10, 1],
+            y_range=[-10, 10, 1],
+            background_line_style={{"stroke_color": BLUE_E, "stroke_width": 1}}
+        )
+        
+        # Animate grid creation line by line
+        self.play(Create(plane), run_time=2.0)
+        self.wait(0.5)
+        
+        # Add labels (ALWAYS use raw strings for LaTeX!)
+        labels = plane.get_axis_labels(x_label="x", y_label="y")
+        self.play(Write(labels), run_time=1.0)
+        
+        # Show a formula example with proper raw strings
+        formula = MathTex(r"A", "=", r"\pi", "r^2", font_size=48)
+        formula.to_edge(UP)
+        self.play(FadeIn(formula), run_time=1.0)
+        
+        # Hold final frame to match voice-over duration
+        self.wait(0.5)  # Total: 2.0 + 0.5 + 1.0 + 1.0 + 0.5 = 5.0 seconds
+```
+
+Now generate the Manim scene for the given keyframe. Make it visually appealing and mathematically accurate.

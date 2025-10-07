@@ -1,0 +1,381 @@
+/**
+ * Y2K Minimalistic Theme for ALFA Documentation
+ * Clean, modern, tech-inspired aesthetic
+ */
+
+/* Import Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+/* CSS Variables - Y2K Color Palette */
+:root {
+  /* Primary Colors - Electric Blue */
+  --ifm-color-primary: #0066ff;
+  --ifm-color-primary-dark: #0052cc;
+  --ifm-color-primary-darker: #0047b3;
+  --ifm-color-primary-darkest: #003d99;
+  --ifm-color-primary-light: #3385ff;
+  --ifm-color-primary-lighter: #4d94ff;
+  --ifm-color-primary-lightest: #99c2ff;
+  
+  /* Y2K Accent Colors */
+  --y2k-blue: #0066ff;
+  --y2k-cyan: #00ffff;
+  --y2k-silver: #c0c0c0;
+  --y2k-white: #ffffff;
+  --y2k-black: #000000;
+  --y2k-gray: #f5f5f5;
+  
+  /* Clean backgrounds */
+  --ifm-background-color: #ffffff;
+  --ifm-navbar-background-color: #ffffff;
+  --ifm-footer-background-color: #f5f5f5;
+  
+  /* Typography */
+  --ifm-font-family-base: 'Inter', -apple-system, system-ui, sans-serif;
+  --ifm-heading-font-family: 'Space Grotesk', 'Inter', sans-serif;
+  --ifm-code-font-size: 95%;
+  
+  /* Borders */
+  --ifm-global-border-width: 1px;
+  --ifm-hr-border-color: #e0e0e0;
+  
+  --docusaurus-highlighted-code-line-bg: rgba(0, 102, 255, 0.1);
+}
+
+/* Dark Mode */
+[data-theme='dark'] {
+  --ifm-color-primary: #3385ff;
+  --ifm-color-primary-dark: #1a75ff;
+  --ifm-color-primary-darker: #0066ff;
+  --ifm-color-primary-darkest: #0052cc;
+  --ifm-color-primary-light: #4d94ff;
+  --ifm-color-primary-lighter: #66a3ff;
+  --ifm-color-primary-lightest: #99c2ff;
+  
+  --ifm-background-color: #0a0a0a;
+  --ifm-navbar-background-color: #000000;
+  --ifm-footer-background-color: #000000;
+  
+  --y2k-gray: #1a1a1a;
+  --y2k-black: #ffffff;
+  --y2k-white: #000000;
+  --ifm-hr-border-color: #2a2a2a;
+  
+  --docusaurus-highlighted-code-line-bg: rgba(51, 133, 255, 0.2);
+}
+
+/* Hero Section - Y2K Minimalistic with Prism Background */
+.hero-section {
+  position: relative;
+  padding: 120px 20px;
+  text-align: center;
+  color: white;
+  overflow: hidden;
+  background: #000000;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Prism background container */
+.hero-prism-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 0;
+}
+
+.hero-content {
+  position: relative;
+  z-index: 1;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.hero-title {
+  font-family: var(--ifm-heading-font-family);
+  font-size: 6rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  letter-spacing: -0.02em;
+  text-shadow: 0 0 60px rgba(0, 102, 255, 0.5);
+}
+
+.hero-subtitle {
+  font-size: 1.25rem;
+  font-weight: 400;
+  margin-bottom: 2rem;
+  opacity: 0.9;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+  letter-spacing: 0.01em;
+}
+
+/* Subject Badges - Y2K Style */
+.subject-badges {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  margin: 2.5rem 0;
+  flex-wrap: wrap;
+}
+
+.subject-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1.25rem;
+  border-radius: 2px;
+  font-weight: 500;
+  font-size: 0.875rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(10px);
+  transition: all 0.2s ease;
+}
+
+.subject-badge:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.6);
+  transform: translateY(-2px);
+}
+
+/* CTA Buttons - Y2K Minimalistic */
+.cta-buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin: 2.5rem 0;
+  flex-wrap: wrap;
+}
+
+.cta-button {
+  padding: 0.875rem 2rem;
+  font-size: 1rem;
+  font-weight: 500;
+  border-radius: 0;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  border: 1px solid;
+  cursor: pointer;
+  letter-spacing: 0.025em;
+}
+
+.cta-primary {
+  background: #0066ff;
+  color: white;
+  border-color: #0066ff;
+}
+
+.cta-primary:hover {
+  background: #0052cc;
+  border-color: #0052cc;
+  color: white;
+  transform: translateY(-2px);
+}
+
+.cta-secondary {
+  background: transparent;
+  color: white;
+  border-color: white;
+}
+
+.cta-secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  transform: translateY(-2px);
+}
+
+/* Video Container - Y2K Minimalistic */
+.video-container {
+  margin: 3rem auto;
+  max-width: 900px;
+  border-radius: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.video-container video {
+  width: 100%;
+  display: block;
+}
+
+/* Features Section - Y2K Minimalistic */
+.features-section {
+  padding: 100px 20px;
+  background: #000000;
+  border-top: 1px solid #1a1a1a;
+}
+
+[data-theme='dark'] .features-section {
+  background: #000000;
+}
+
+.features-title {
+  text-align: center;
+  font-family: var(--ifm-heading-font-family);
+  font-size: 2.5rem;
+  font-weight: 600;
+  margin-bottom: 4rem;
+  color: #ffffff;
+  letter-spacing: -0.02em;
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.feature-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.5rem;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(10px);
+  transition: all 0.2s ease;
+  color: #ffffff;
+  height: 100%;
+}
+
+.feature-card:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: translateY(-2px);
+}
+
+.feature-icon {
+  flex-shrink: 0;
+  opacity: 0.9;
+  color: #ffffff;
+}
+
+.feature-title {
+  font-family: var(--ifm-heading-font-family);
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.25rem 0;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+}
+
+.feature-description {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Stats Section - Y2K Minimalistic */
+.stats-section {
+  padding: 100px 20px;
+  background: var(--y2k-gray);
+  border-top: 1px solid var(--ifm-hr-border-color);
+}
+
+[data-theme='dark'] .stats-section {
+  background: var(--y2k-gray);
+}
+
+.stats-title {
+  text-align: center;
+  font-family: var(--ifm-heading-font-family);
+  font-size: 2.5rem;
+  font-weight: 600;
+  margin-bottom: 4rem;
+  color: var(--ifm-font-color-base);
+  letter-spacing: -0.02em;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 3rem;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.stat-card {
+  text-align: center;
+  padding: 1.5rem;
+}
+
+.stat-number {
+  font-family: var(--ifm-heading-font-family);
+  font-size: 3rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  color: var(--ifm-color-primary);
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.stat-label {
+  font-size: 1rem;
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .hero-title {
+    font-size: 3.5rem;
+  }
+  
+  .hero-subtitle {
+    font-size: 1.1rem;
+  }
+  
+  .features-title,
+  .stats-title {
+    font-size: 2rem;
+  }
+  
+  .stat-number {
+    font-size: 2.5rem;
+  }
+}
+
+/* Navbar - Clean Y2K Style */
+.navbar {
+  border-bottom: 1px solid var(--ifm-hr-border-color);
+  box-shadow: none;
+}
+
+.navbar__title {
+  font-family: var(--ifm-heading-font-family);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Footer - Minimal */
+.footer {
+  border-top: 1px solid var(--ifm-hr-border-color);
+  text-align: center;
+  background-color: #000000;
+}
+
+.footer__links {
+  justify-content: center;
+  gap: 3rem;
+}
+
+.footer__col {
+  flex: 0 0 auto;
+  max-width: 200px;
+}
